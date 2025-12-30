@@ -56,6 +56,10 @@ ${c.cyan}AI Commands (v4):${c.reset}
   ${c.magenta}bugs${c.reset} [file]       Predict potential bugs
   ${c.magenta}build-ai${c.reset}          Build vector index & knowledge graph
   ${c.magenta}status${c.reset}            Check AI system status
+  ${c.magenta}hotspots${c.reset}          Find frequently changed files (Git)
+  ${c.magenta}complexity${c.reset} <file> Calculate code complexity metrics
+  ${c.magenta}markers${c.reset}           Find TODO/FIXME/HACK in code
+  ${c.magenta}trends${c.reset}            Show project change trends
 
 ${c.cyan}Server Commands:${c.reset}
   ${c.green}serve${c.reset}              Start REST API server (port 3456)
@@ -68,6 +72,7 @@ ${c.cyan}Examples:${c.reset}
   funclib symbol UserService
   funclib list function
   funclib watch
+  funclib hotspots
   funclib ask "sepete ürün ekleme nerede?"
   funclib impact useEditorStore
   funclib bugs src/services/
@@ -553,6 +558,202 @@ async function main() {
       }
 
       log('\n🎉 AI index hazır! `funclib ask` kullanabilirsiniz.\n', 'green');
+      break;
+    }
+
+    // ============ ANALYSIS COMMANDS ============
+
+    case 'hotspots': {
+      log('\n🔥 Hotspot Analizi (Sık Değişen Dosyalar)\n', 'cyan');
+
+      const { getGitCollector } = await import('./collectors/gitCollector');
+      const gitCollector = getGitCollector(PROJECT_PATH);
+      
+      const limit = parseInt(args[1]) || 20;
+      const hotspots = gitCollector.getHotspots(limit);
+
+      if (hotspots.length === 0) {
+        log('⚠️ Git geçmişi bulunamadı veya henüz commit yok.', 'yellow');
+        break;
+      }
+
+      log(`📊 En sık değişen ${hotspots.length} dosya:\n`, 'reset');
+      
+      hotspots.forEach((h, i) => {
+        const bar = '█'.repeat(Math.ceil(h.changeCount / hotspots[0].changeCount * 20));
+        log(`   ${String(i + 1).padStart(2)}. ${h.file}`, 'reset');
+        log(`       ${bar} ${h.changeCount} değişiklik, ${h.authors.length} yazar`, 'dim');
+      });
+
+      log('\n💡 Hotspot\'lar refactoring adaylarıdır - sık değişen kod genellikle karmaşıktır.\n', 'dim');
+      break;
+    }
+
+    case 'complexity': {
+      const targetFile = args[1];
+      
+      if (!targetFile) {
+        log('❌ Dosya yolu gerekli: funclib complexity <file>', 'red');
+        process.exit(1);
+      }
+
+      const filePath = path.resolve(PROJECT_PATH, targetFile);
+      
+      log(`\n📐 Complexity Analizi: ${targetFile}\n`, 'cyan');
+
+      const { ComplexityCalculator } = await import('./parsers/complexityCalculator');
+      const calculator = new ComplexityCalculator();
+      
+      const fs = await import('fs');
+      if (!fs.existsSync(filePath)) {
+        log(`❌ Dosya bulunamadı: ${filePath}`, 'red');
+        break;
+      }
+
+      const code = fs.readFileSync(filePath, 'utf-8');
+      
+      // Dosya için genel complexity hesapla
+      const overallMetrics = calculator.calculate(code);
+
+      log(`📊 Dosya Metrikleri:`, 'reset');
+      log(`   Kod Satırı:          ${overallMetrics.linesOfCode}`, 'reset');
+      log(`   Yorum Satırı:        ${overallMetrics.linesOfComments}`, 'reset');
+      log(`   Boş Satır:           ${overallMetrics.blankLines}`, 'reset');
+      log(`   Cyclomatic:          ${overallMetrics.cyclomatic}`, overallMetrics.cyclomatic > 15 ? 'red' : 'green');
+      log(`   Cognitive:           ${overallMetrics.cognitive}`, overallMetrics.cognitive > 20 ? 'red' : 'green');
+      log(`   Maintainability:     ${overallMetrics.maintainability.toFixed(1)}`, overallMetrics.maintainability < 20 ? 'red' : 'green');
+
+      if (overallMetrics.halstead) {
+        log(`\n📈 Halstead Metrikleri:`, 'cyan');
+        log(`   Vocabulary:  ${overallMetrics.halstead.vocabulary}`, 'dim');
+        log(`   Length:      ${overallMetrics.halstead.length}`, 'dim');
+        log(`   Volume:      ${overallMetrics.halstead.volume.toFixed(1)}`, 'dim');
+        log(`   Difficulty:  ${overallMetrics.halstead.difficulty.toFixed(1)}`, 'dim');
+        log(`   Effort:      ${overallMetrics.halstead.effort.toFixed(0)}`, 'dim');
+        log(`   Est. Bugs:   ${overallMetrics.halstead.bugs.toFixed(2)}`, 'dim');
+      }
+
+      // Risk seviyesi
+      const riskScore = (overallMetrics.cyclomatic / 10) + (overallMetrics.cognitive / 15) + ((100 - overallMetrics.maintainability) / 50);
+      const riskLevel = riskScore > 3 ? '🔴 Yüksek' : riskScore > 1.5 ? '🟡 Orta' : '🟢 Düşük';
+      
+      log(`\n📊 Risk Seviyesi: ${riskLevel}`, 'reset');
+      console.log();
+      break;
+    }
+
+    case 'markers': {
+      log('\n🏷️ Kod Marker\'ları (TODO/FIXME/HACK)\n', 'cyan');
+
+      const { JSDocParser } = await import('./parsers/jsdocParser');
+      const parser = new JSDocParser();
+      
+      const fs = await import('fs');
+      const glob = await import('glob').catch(() => null);
+      
+      if (!glob) {
+        log('❌ glob paketi gerekli: npm install glob', 'red');
+        break;
+      }
+
+      const files = glob.sync('**/*.{ts,tsx,js,jsx,vue,py}', {
+        cwd: PROJECT_PATH,
+        ignore: ['**/node_modules/**', '**/dist/**', '**/.funclib/**'],
+      });
+
+      const allMarkers: Array<{ file: string; type: string; text: string; line: number }> = [];
+
+      for (const file of files) {
+        const filePath = path.join(PROJECT_PATH, file);
+        const code = fs.readFileSync(filePath, 'utf-8');
+        const markers = parser.extractMarkers(code);
+        
+        for (const marker of markers) {
+          allMarkers.push({ file, type: marker.type, text: marker.text, line: marker.line });
+        }
+      }
+
+      if (allMarkers.length === 0) {
+        log('✅ Hiç marker bulunamadı! Temiz kod.', 'green');
+        break;
+      }
+
+      // Group by type
+      const byType: Record<string, typeof allMarkers> = {};
+      for (const m of allMarkers) {
+        if (!byType[m.type]) byType[m.type] = [];
+        byType[m.type].push(m);
+      }
+
+      // Sort by priority
+      const typeOrder = ['FIXME', 'BUG', 'HACK', 'XXX', 'TODO', 'OPTIMIZE', 'NOTE'];
+      const sortedTypes = Object.keys(byType).sort((a, b) => typeOrder.indexOf(a) - typeOrder.indexOf(b));
+
+      for (const type of sortedTypes) {
+        const markers = byType[type];
+        const icon = type === 'FIXME' || type === 'BUG' ? '🔴' :
+                     type === 'HACK' || type === 'XXX' ? '🟠' :
+                     type === 'TODO' ? '🟡' : '🔵';
+        
+        log(`${icon} ${type} (${markers.length}):\n`, 'reset');
+        
+        for (const m of markers.slice(0, 10)) {
+          log(`   ${m.file}:${m.line}`, 'dim');
+          log(`   └─ ${truncate(m.text, 60)}`, 'reset');
+        }
+        
+        if (markers.length > 10) {
+          log(`   ... ve ${markers.length - 10} tane daha\n`, 'dim');
+        }
+        console.log();
+      }
+
+      log(`📊 Toplam: ${allMarkers.length} marker bulundu\n`, 'cyan');
+      break;
+    }
+
+    case 'trends': {
+      log('\n📈 Proje Trend Analizi\n', 'cyan');
+
+      const { getTemporalMemory } = await import('./memory/temporalMemory');
+      const memory = getTemporalMemory(PROJECT_PATH);
+      
+      const trends = memory.analyzeTrends();
+      const anomalies = memory.detectAnomalies();
+
+      if (!trends.mostChanged.length) {
+        log('⚠️ Henüz temporal data yok. Projeyi kullandıkça veriler birikecek.', 'yellow');
+        log('   `funclib watch` ile dosya değişikliklerini izleyebilirsiniz.', 'dim');
+        break;
+      }
+
+      log('🔥 En Çok Değişen Dosyalar:', 'reset');
+      for (const f of trends.mostChanged.slice(0, 10)) {
+        log(`   ${f.file} - ${f.changes} değişiklik`, 'dim');
+      }
+
+      log('\n👥 En Aktif Yazarlar:', 'reset');
+      for (const a of trends.mostActive.slice(0, 5)) {
+        log(`   ${a.author} - ${a.commits} commit`, 'dim');
+      }
+
+      if (trends.bugFixTrend.length > 0) {
+        log('\n🐛 Bug Fix Trendi:', 'reset');
+        for (const b of trends.bugFixTrend.slice(-4)) {
+          const bar = '█'.repeat(Math.min(b.count, 30));
+          log(`   ${b.week}: ${bar} (${b.count})`, 'dim');
+        }
+      }
+
+      if (anomalies.length > 0) {
+        log('\n⚠️ Anomaliler:', 'red');
+        for (const a of anomalies.slice(0, 5)) {
+          log(`   ${a.type}: ${a.file || a.commit}`, 'reset');
+          log(`   └─ ${a.description}`, 'dim');
+        }
+      }
+
+      console.log();
       break;
     }
 
