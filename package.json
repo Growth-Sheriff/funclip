@@ -1,0 +1,49 @@
+{
+  "name": "funclib",
+  "version": "2.0.0",
+  "description": "Universal Symbol Index - Tree-sitter based code analysis for all languages",
+  "main": "dist/server.js",
+  "bin": {
+    "funclib": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "serve": "node dist/server.js",
+    "mcp": "node dist/mcp.js",
+    "cli": "node dist/cli.js",
+    "index": "node dist/cli.js index",
+    "search": "node dist/cli.js search",
+    "refs": "node dist/cli.js refs",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "code-analysis",
+    "tree-sitter",
+    "symbol-index",
+    "function-search",
+    "references",
+    "copilot",
+    "mcp",
+    "ast"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "glob": "^10.3.10",
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.22.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,330 @@
+#!/usr/bin/env node
+"use strict";
+/**
+ * FuncLib v2 - CLI Tool
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const indexManager_1 = __importDefault(require("./indexManager"));
+const server_1 = require("./server");
+const mcp_1 = require("./mcp");
+const args = process.argv.slice(2);
+const command = args[0];
+const PROJECT_PATH = process.env.FUNCLIB_PROJECT || process.cwd();
+// Colors
+const c = {
+    reset: '\x1b[0m',
+    bold: '\x1b[1m',
+    dim: '\x1b[2m',
+    red: '\x1b[31m',
+    green: '\x1b[32m',
+    yellow: '\x1b[33m',
+    blue: '\x1b[34m',
+    cyan: '\x1b[36m',
+    magenta: '\x1b[35m',
+};
+function log(msg, color = 'reset') {
+    console.log(`${c[color]}${msg}${c.reset}`);
+}
+function printHelp() {
+    console.log(`
+${c.bold}FuncLib v2 - Universal Symbol Index${c.reset}
+
+${c.cyan}Usage:${c.reset}
+  funclib <command> [options]
+
+${c.cyan}Commands:${c.reset}
+  ${c.green}index${c.reset}              Index the project (Tree-sitter AST)
+  ${c.green}search${c.reset} <query>     Search for symbols
+  ${c.green}refs${c.reset} <name>        Find all references
+  ${c.green}symbol${c.reset} <name>      Get symbol details
+  ${c.green}list${c.reset} [kind]        List all symbols
+  ${c.green}file${c.reset} <path>        Show symbols in file
+  ${c.green}stats${c.reset}              Show index statistics
+  ${c.green}graph${c.reset}              Show call graph
+  ${c.green}serve${c.reset}              Start REST API server (port 3456)
+  ${c.green}mcp${c.reset}                Start MCP server for Copilot (port 3457)
+
+${c.cyan}Examples:${c.reset}
+  funclib index
+  funclib search handleSubmit
+  funclib refs fetchData
+  funclib symbol UserService
+  funclib list function
+  funclib serve
+  funclib mcp
+
+${c.cyan}Environment:${c.reset}
+  FUNCLIB_PROJECT    Project directory (default: cwd)
+  PORT               REST API server port (default: 3456)
+  MCP_PORT           MCP server port (default: 3457)
+
+${c.cyan}Supported Languages:${c.reset}
+  JavaScript, TypeScript, Python, Go, Rust, Java, Kotlin,
+  C#, C/C++, PHP, Ruby, Swift, Dart, Vue, and more!
+`);
+}
+async function main() {
+    const indexManager = new indexManager_1.default(PROJECT_PATH);
+    indexManager.load();
+    switch (command) {
+        case 'index': {
+            log('\n🔍 Indexing project with Tree-sitter...', 'cyan');
+            const start = Date.now();
+            const result = await indexManager.indexProject({
+                incremental: !args.includes('--full'),
+                onProgress: (current, total, file) => {
+                    process.stdout.write(`\r   Processing: ${current}/${total} - ${file.substring(0, 50).padEnd(50)}`);
+                },
+            });
+            const elapsed = Date.now() - start;
+            console.log('\r' + ' '.repeat(80) + '\r'); // Clear line
+            log(`✅ Indexing complete (${elapsed}ms)`, 'green');
+            log(`   📁 ${result.indexed} files indexed`, 'dim');
+            log(`   ⏭️  ${result.skipped} files skipped (unchanged)`, 'dim');
+            if (result.errors.length > 0) {
+                log(`   ⚠️  ${result.errors.length} errors`, 'yellow');
+            }
+            const stats = indexManager.getStats();
+            log(`   📊 Total: ${stats.totalSymbols} symbols, ${stats.totalReferences} references`, 'dim');
+            // Show language breakdown
+            const langs = Object.entries(stats.byLanguage)
+                .filter(([_, count]) => count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+            if (langs.length > 0) {
+                log(`   🌐 Languages: ${langs.map(([l, c]) => `${l}(${c})`).join(', ')}`, 'dim');
+            }
+            console.log();
+            break;
+        }
+        case 'search': {
+            const query = args[1];
+            if (!query) {
+                log('❌ Search query required: funclib search <query>', 'red');
+                process.exit(1);
+            }
+            const results = indexManager.search({ query, limit: 30 });
+            if (results.length === 0) {
+                log(`\n❌ No results for "${query}"\n`, 'yellow');
+                break;
+            }
+            log(`\n🔎 Found ${results.length} results for "${query}":\n`, 'cyan');
+            for (const r of results) {
+                const s = r.symbol;
+                const kindIcon = getKindIcon(s.kind);
+                const exported = s.exported ? '📤' : '';
+                const async = s.async ? '⚡' : '';
+                log(`${kindIcon} ${c.bold}${s.name}${c.reset} ${async}${exported}`, 'reset');
+                log(`   ${c.dim}${s.file}:${s.range.start.line}${c.reset}`, 'reset');
+                if (s.signature) {
+                    log(`   ${c.blue}${truncate(s.signature, 70)}${c.reset}`, 'reset');
+                }
+                console.log();
+            }
+            break;
+        }
+        case 'refs': {
+            const name = args[1];
+            if (!name) {
+                log('❌ Symbol name required: funclib refs <name>', 'red');
+                process.exit(1);
+            }
+            const refs = indexManager.findReferences(name);
+            log(`\n📍 References for "${name}":`, 'cyan');
+            log(`   ${refs.definitions.length} definition(s), ${refs.references.length} reference(s)\n`, 'dim');
+            if (refs.definitions.length > 0) {
+                log('=== DEFINITIONS ===', 'green');
+                for (const d of refs.definitions) {
+                    log(`${d.file}:${d.range.start.line}`, 'bold');
+                    log(`   ${c.blue}${d.signature || d.name}${c.reset}`, 'reset');
+                }
+                console.log();
+            }
+            if (refs.references.length > 0) {
+                log('=== REFERENCES ===', 'yellow');
+                for (const r of refs.references) {
+                    log(`${r.file}:${r.range.start.line}`, 'bold');
+                    log(`   ${c.dim}${truncate(r.context, 60)}${c.reset}`, 'reset');
+                }
+            }
+            if (refs.total === 0) {
+                log(`No references found for "${name}"`, 'yellow');
+            }
+            console.log();
+            break;
+        }
+        case 'symbol': {
+            const name = args[1];
+            if (!name) {
+                log('❌ Symbol name required: funclib symbol <name>', 'red');
+                process.exit(1);
+            }
+            const defs = indexManager.getAllDefinitions(name);
+            if (defs.length === 0) {
+                log(`\n❌ Symbol not found: ${name}\n`, 'yellow');
+                break;
+            }
+            log(`\n📦 Symbol: ${name} (${defs.length} definition${defs.length > 1 ? 's' : ''})\n`, 'cyan');
+            for (const d of defs) {
+                log(`${'═'.repeat(60)}`, 'dim');
+                log(`📄 ${d.file}:${d.range.start.line}`, 'bold');
+                log(`${'─'.repeat(60)}`, 'dim');
+                log(`Kind:       ${d.kind}`, 'reset');
+                log(`Language:   ${d.language}`, 'reset');
+                log(`Exported:   ${d.exported ? 'yes' : 'no'}`, 'reset');
+                if (d.async)
+                    log(`Async:      yes`, 'reset');
+                if (d.static)
+                    log(`Static:     yes`, 'reset');
+                if (d.visibility)
+                    log(`Visibility: ${d.visibility}`, 'reset');
+                if (d.parent)
+                    log(`Parent:     ${d.parent}`, 'reset');
+                if (d.parameters && d.parameters.length > 0) {
+                    log(`Parameters: ${d.parameters.map(p => p.name).join(', ')}`, 'reset');
+                }
+                if (d.signature) {
+                    log(`\nSignature:`, 'cyan');
+                    log(`  ${d.signature}`, 'blue');
+                }
+                console.log();
+            }
+            break;
+        }
+        case 'list': {
+            const kindFilter = args[1];
+            const symbols = indexManager.getAllSymbols();
+            const filtered = kindFilter
+                ? symbols.filter(s => s.kind === kindFilter)
+                : symbols;
+            const byKind = {};
+            for (const s of filtered) {
+                if (!byKind[s.kind])
+                    byKind[s.kind] = [];
+                byKind[s.kind].push(s);
+            }
+            log(`\n📚 All Symbols (${filtered.length} total)\n`, 'cyan');
+            for (const [kind, items] of Object.entries(byKind)) {
+                log(`\n${getKindIcon(kind)} ${kind.toUpperCase()} (${items.length})`, 'bold');
+                log('─'.repeat(40), 'dim');
+                for (const s of items.slice(0, 50)) {
+                    const exp = s.exported ? ' 📤' : '';
+                    log(`  ${s.name}${exp}  ${c.dim}${s.file}:${s.range.start.line}${c.reset}`, 'reset');
+                }
+                if (items.length > 50) {
+                    log(`  ${c.dim}... and ${items.length - 50} more${c.reset}`, 'reset');
+                }
+            }
+            console.log();
+            break;
+        }
+        case 'file': {
+            const filePath = args[1];
+            if (!filePath) {
+                log('❌ File path required: funclib file <path>', 'red');
+                process.exit(1);
+            }
+            const symbols = indexManager.getSymbolsInFile(filePath);
+            if (symbols.length === 0) {
+                log(`\n❌ No symbols found in: ${filePath}\n`, 'yellow');
+                break;
+            }
+            log(`\n📄 ${filePath} (${symbols.length} symbols)\n`, 'cyan');
+            for (const s of symbols) {
+                const icon = getKindIcon(s.kind);
+                log(`  ${s.range.start.line.toString().padStart(4)} │ ${icon} ${s.name}`, 'reset');
+            }
+            console.log();
+            break;
+        }
+        case 'stats': {
+            const stats = indexManager.getStats();
+            log('\n📊 Index Statistics\n', 'cyan');
+            log(`   Project:     ${PROJECT_PATH}`, 'reset');
+            log(`   Files:       ${stats.totalFiles}`, 'reset');
+            log(`   Symbols:     ${stats.totalSymbols}`, 'reset');
+            log(`   References:  ${stats.totalReferences}`, 'reset');
+            if (Object.keys(stats.byLanguage).length > 0) {
+                log('\n   By Language:', 'bold');
+                for (const [lang, count] of Object.entries(stats.byLanguage).sort((a, b) => b[1] - a[1])) {
+                    if (count > 0)
+                        log(`     ${lang.padEnd(12)} ${count}`, 'dim');
+                }
+            }
+            if (Object.keys(stats.byKind).length > 0) {
+                log('\n   By Kind:', 'bold');
+                for (const [kind, count] of Object.entries(stats.byKind).sort((a, b) => b[1] - a[1])) {
+                    log(`     ${kind.padEnd(12)} ${count}`, 'dim');
+                }
+            }
+            console.log();
+            break;
+        }
+        case 'graph': {
+            const graph = indexManager.buildCallGraph();
+            log('\n🔗 Call Graph\n', 'cyan');
+            log(`   Nodes: ${graph.nodes.length}`, 'dim');
+            log(`   Edges: ${graph.edges.length}`, 'dim');
+            if (graph.edges.length > 0) {
+                log('\n   Calls:', 'bold');
+                for (const edge of graph.edges.slice(0, 30)) {
+                    log(`     ${edge.from.split(':')[1]} → ${edge.to} (${edge.count}x)`, 'reset');
+                }
+                if (graph.edges.length > 30) {
+                    log(`     ... and ${graph.edges.length - 30} more`, 'dim');
+                }
+            }
+            console.log();
+            break;
+        }
+        case 'serve': {
+            log('\n🚀 Starting REST API server...', 'cyan');
+            (0, server_1.startServer)();
+            break;
+        }
+        case 'mcp': {
+            log('\n🤖 Starting MCP server...', 'cyan');
+            const mcpPort = parseInt(process.env.MCP_PORT || '3457');
+            (0, mcp_1.createMCPServer)(mcpPort);
+            break;
+        }
+        case 'help':
+        case '--help':
+        case '-h':
+        default:
+            printHelp();
+    }
+}
+function getKindIcon(kind) {
+    const icons = {
+        'function': '🔧',
+        'method': '🔨',
+        'class': '📦',
+        'interface': '📋',
+        'type': '📝',
+        'enum': '📊',
+        'variable': '📌',
+        'constant': '🔒',
+        'property': '🏷️',
+        'constructor': '🏗️',
+        'module': '📁',
+        'namespace': '📂',
+        'component': '🧩',
+        'hook': '🪝',
+    };
+    return icons[kind] || '•';
+}
+function truncate(str, max) {
+    if (str.length <= max)
+        return str;
+    return str.substring(0, max - 3) + '...';
+}
+main().catch(err => {
+    log(`\n❌ Error: ${err.message}\n`, 'red');
+    console.error(err);
+    process.exit(1);
+});
+//# sourceMappingURL=cli.js.map

@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "FuncLib: Build",
+      "type": "shell",
+      "command": "npm run build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "FuncLib: Index Project",
+      "type": "shell",
+      "command": "npm run index",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "FuncLib: Start REST Server",
+      "type": "shell",
+      "command": "npm run serve",
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "FuncLib: Start MCP Server",
+      "type": "shell",
+      "command": "npm run mcp",
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "FuncLib: Search",
+      "type": "shell",
+      "command": "npm run cli -- search ${input:searchQuery}",
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "FuncLib: Find References",
+      "type": "shell",
+      "command": "npm run cli -- refs ${input:symbolName}",
+      "presentation": {
+        "reveal": "always"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "searchQuery",
+      "type": "promptString",
+      "description": "Search query"
+    },
+    {
+      "id": "symbolName",
+      "type": "promptString",
+      "description": "Symbol name"
+    }
+  ]
+}
