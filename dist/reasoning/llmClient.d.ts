@@ -1,6 +1,8 @@
 /**
  * FuncLib v4 - LLM Reasoning Engine
  * Ollama ile lokal LLM entegrasyonu
+ *
+ * v4.1: Retry, Timeout, Cache desteği eklendi
  */
 export interface LLMConfig {
     provider: 'ollama' | 'groq' | 'together';
@@ -9,6 +11,10 @@ export interface LLMConfig {
     apiKey?: string;
     temperature?: number;
     maxTokens?: number;
+    timeout?: number;
+    retryAttempts?: number;
+    retryDelay?: number;
+    useCache?: boolean;
 }
 export interface LLMMessage {
     role: 'system' | 'user' | 'assistant';
@@ -32,11 +38,21 @@ export interface ReasoningResult {
 }
 export declare class LLMClient {
     private config;
+    private logger;
+    private cache;
     constructor(config?: Partial<LLMConfig>);
     /**
      * Ollama'nın çalışıp çalışmadığını kontrol et
      */
     checkOllama(): Promise<boolean>;
+    /**
+     * Retry wrapper with exponential backoff
+     */
+    private withRetry;
+    /**
+     * Sleep utility
+     */
+    private sleep;
     /**
      * LLM'e mesaj gönder
      */
@@ -50,7 +66,7 @@ export declare class LLMClient {
      */
     private chatOpenAIFormat;
     /**
-     * HTTP request helper
+     * HTTP request helper with configurable timeout
      */
     private httpRequest;
     /**
@@ -65,6 +81,7 @@ export declare class LLMClient {
 export declare class ReasoningEngine {
     private llm;
     private systemPrompt;
+    private logger;
     constructor(llmConfig?: Partial<LLMConfig>);
     /**
      * Kod hakkında soru sor

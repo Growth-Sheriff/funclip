@@ -42,8 +42,10 @@ const vectorStore_1 = require("../memory/vectorStore");
 const knowledgeGraph_1 = require("../memory/knowledgeGraph");
 const llmClient_1 = require("../reasoning/llmClient");
 const indexManager_1 = require("../indexManager");
+const logger_1 = require("../core/logger");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const logger = (0, logger_1.getLogger)().child('QueryEngine');
 class QueryEngine {
     vectorStore;
     graph;
@@ -67,7 +69,7 @@ class QueryEngine {
      */
     async ask(question, options = {}) {
         const { useLLM = true, maxResults = 10, includeCode = true, analyzeImpact = false, } = options;
-        console.log(`\n🔍 Sorgu: "${question}"`);
+        logger.info(`🔍 Sorgu: "${question}"`);
         // 1. Semantic search
         let searchResults = [];
         if (this.vectorStore.size > 0) {
@@ -350,10 +352,10 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
     async buildVectorIndex() {
         const index = this.indexManager.getIndex();
         if (!index) {
-            console.log('❌ Index bulunamadı. Önce `funclib index` çalıştırın.');
+            logger.warn('❌ Index bulunamadı. Önce `funclib index` çalıştırın.');
             return;
         }
-        console.log('🧠 Vector index oluşturuluyor...');
+        logger.info('🧠 Vector index oluşturuluyor...');
         const docs = [];
         for (const [file, data] of Object.entries(index.files)) {
             const fileData = data;
@@ -388,7 +390,7 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
         }
         if (docs.length > 0) {
             await this.vectorStore.addBatch(docs);
-            console.log(`✅ ${docs.length} döküman vektörize edildi`);
+            logger.info(`✅ ${docs.length} döküman vektörize edildi`);
         }
     }
     /**
@@ -397,10 +399,10 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
     buildKnowledgeGraph() {
         const index = this.indexManager.getIndex();
         if (!index) {
-            console.log('❌ Index bulunamadı.');
+            logger.warn('❌ Index bulunamadı.');
             return;
         }
-        console.log('🕸️ Knowledge graph oluşturuluyor...');
+        logger.info('🕸️ Knowledge graph oluşturuluyor...');
         this.graph.clear();
         // Dosyaları ve sembolleri node olarak ekle
         for (const [file, data] of Object.entries(index.files)) {
@@ -471,7 +473,7 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
         }
         this.graph.save();
         const stats = this.graph.getStats();
-        console.log(`✅ Graph oluşturuldu: ${stats.nodeCount} node, ${stats.edgeCount} edge`);
+        logger.info(`✅ Graph oluşturuldu: ${stats.nodeCount} node, ${stats.edgeCount} edge`);
     }
     findSymbolNodeId(index, symbolName) {
         for (const [file, data] of Object.entries(index.files)) {

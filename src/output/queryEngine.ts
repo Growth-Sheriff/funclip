@@ -8,8 +8,11 @@ import { KnowledgeGraph, getKnowledgeGraph, ImpactResult } from '../memory/knowl
 import { ReasoningEngine, getReasoningEngine, ReasoningResult } from '../reasoning/llmClient';
 import { IndexManager } from '../indexManager';
 import { FileIndex } from '../types';
+import { getLogger } from '../core/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const logger = getLogger().child('QueryEngine');
 
 export interface QueryResult {
   answer: string;
@@ -69,7 +72,7 @@ export class QueryEngine {
       analyzeImpact = false,
     } = options;
 
-    console.log(`\n🔍 Sorgu: "${question}"`);
+    logger.info(`🔍 Sorgu: "${question}"`);
 
     // 1. Semantic search
     let searchResults: SearchResult[] = [];
@@ -380,11 +383,11 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
   async buildVectorIndex(): Promise<void> {
     const index = this.indexManager.getIndex();
     if (!index) {
-      console.log('❌ Index bulunamadı. Önce `funclib index` çalıştırın.');
+      logger.warn('❌ Index bulunamadı. Önce `funclib index` çalıştırın.');
       return;
     }
 
-    console.log('🧠 Vector index oluşturuluyor...');
+    logger.info('🧠 Vector index oluşturuluyor...');
 
     const docs: Array<{
       id: string;
@@ -432,7 +435,7 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
 
     if (docs.length > 0) {
       await this.vectorStore.addBatch(docs);
-      console.log(`✅ ${docs.length} döküman vektörize edildi`);
+      logger.info(`✅ ${docs.length} döküman vektörize edildi`);
     }
   }
 
@@ -442,11 +445,11 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
   buildKnowledgeGraph(): void {
     const index = this.indexManager.getIndex();
     if (!index) {
-      console.log('❌ Index bulunamadı.');
+      logger.warn('❌ Index bulunamadı.');
       return;
     }
 
-    console.log('🕸️ Knowledge graph oluşturuluyor...');
+    logger.info('🕸️ Knowledge graph oluşturuluyor...');
 
     this.graph.clear();
 
@@ -522,7 +525,7 @@ ${usages.relevantCode.length > 10 ? `  ... ve ${usages.relevantCode.length - 10}
 
     this.graph.save();
     const stats = this.graph.getStats();
-    console.log(`✅ Graph oluşturuldu: ${stats.nodeCount} node, ${stats.edgeCount} edge`);
+    logger.info(`✅ Graph oluşturuldu: ${stats.nodeCount} node, ${stats.edgeCount} edge`);
   }
 
   private findSymbolNodeId(index: any, symbolName: string): string | null {

@@ -8,6 +8,8 @@ exports.CodeEmbedder = void 0;
 exports.getEmbedder = getEmbedder;
 // @ts-ignore - Transformers.js types
 const transformers_1 = require("@xenova/transformers");
+const logger_1 = require("../core/logger");
+const logger = (0, logger_1.getLogger)().child('Embedder');
 class CodeEmbedder {
     model = null;
     modelName;
@@ -34,16 +36,16 @@ class CodeEmbedder {
         this.isLoading = false;
     }
     async loadModel() {
-        console.log(`📦 Model yükleniyor: ${this.modelName}`);
+        logger.info(`📦 Model yükleniyor: ${this.modelName}`);
         const startTime = Date.now();
         try {
             this.model = await (0, transformers_1.pipeline)('feature-extraction', this.modelName, {
                 quantized: true, // Daha hızlı, daha az bellek
             });
-            console.log(`✅ Model yüklendi (${Date.now() - startTime}ms)`);
+            logger.info(`✅ Model yüklendi (${Date.now() - startTime}ms)`);
         }
         catch (error) {
-            console.error('❌ Model yükleme hatası:', error);
+            logger.error('❌ Model yükleme hatası:', { error: error.message });
             throw error;
         }
     }

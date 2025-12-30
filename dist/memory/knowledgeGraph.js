@@ -41,6 +41,8 @@ exports.KnowledgeGraph = void 0;
 exports.getKnowledgeGraph = getKnowledgeGraph;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const logger_1 = require("../core/logger");
+const logger = (0, logger_1.getLogger)().child('KnowledgeGraph');
 class KnowledgeGraph {
     nodes = new Map();
     edges = new Map();
@@ -326,7 +328,7 @@ class KnowledgeGraph {
             fs.mkdirSync(dir, { recursive: true });
         }
         fs.writeFileSync(this.persistPath, JSON.stringify(data));
-        console.log(`💾 Knowledge graph kaydedildi: ${this.persistPath}`);
+        logger.info(`💾 Knowledge graph kaydedildi: ${this.persistPath}`);
     }
     /**
      * Disk'ten yükle
@@ -363,10 +365,10 @@ class KnowledgeGraph {
                 }
                 this.inEdges.get(edge.target).add(edge.id);
             }
-            console.log(`📂 Knowledge graph yüklendi: ${this.nodes.size} node, ${this.edges.size} edge`);
+            logger.info(`📂 Knowledge graph yüklendi: ${this.nodes.size} node, ${this.edges.size} edge`);
         }
         catch (error) {
-            console.error('Knowledge graph yükleme hatası:', error);
+            logger.error('Knowledge graph yükleme hatası:', { error: error.message });
         }
     }
 }

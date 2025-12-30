@@ -44,6 +44,8 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const indexManager_1 = __importDefault(require("./indexManager"));
 const queryEngine_1 = require("./output/queryEngine");
+const logger_1 = require("./core/logger");
+const logger = (0, logger_1.getLogger)().child('Server');
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
@@ -661,7 +663,7 @@ app.post('/copilot', (req, res) => {
 });
 // Error handler
 app.use((err, req, res, next) => {
-    console.error('API Error:', err);
+    logger.error('API Error:', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message || 'Internal server error' });
 });
 // Start server

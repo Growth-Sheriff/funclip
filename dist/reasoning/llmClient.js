@@ -2,6 +2,8 @@
 /**
  * FuncLib v4 - LLM Reasoning Engine
  * Ollama ile lokal LLM entegrasyonu
+ *
+ * v4.1: Retry, Timeout, Cache desteği eklendi
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -41,6 +43,8 @@ exports.ReasoningEngine = exports.LLMClient = void 0;
 exports.getReasoningEngine = getReasoningEngine;
 const http = __importStar(require("http"));
 const https = __importStar(require("https"));
+const cache_1 = require("../core/cache");
+const logger_1 = require("../core/logger");
 const DEFAULT_CONFIGS = {
     ollama: {
         provider: 'ollama',
@@ -48,6 +52,10 @@ const DEFAULT_CONFIGS = {
         baseUrl: 'http://localhost:11434',
         temperature: 0.3,
         maxTokens: 2000,
+        timeout: 60000,
+        retryAttempts: 3,
+        retryDelay: 1000,
+        useCache: true,
     },
     groq: {
         provider: 'groq',
@@ -55,6 +63,10 @@ const DEFAULT_CONFIGS = {
         baseUrl: 'https://api.groq.com/openai/v1',
         temperature: 0.3,
         maxTokens: 2000,
+        timeout: 30000,
+        retryAttempts: 3,
+        retryDelay: 1000,
+        useCache: true,
     },
     together: {
         provider: 'together',
@@ -62,10 +74,16 @@ const DEFAULT_CONFIGS = {
         baseUrl: 'https://api.together.xyz/v1',
         temperature: 0.3,
         maxTokens: 2000,
+        timeout: 30000,
+        retryAttempts: 3,
+        retryDelay: 1000,
+        useCache: true,
     },
 };
 class LLMClient {
     config;
+    logger = (0, logger_1.getLogger)().child('LLM');
+    cache = (0, cache_1.getLLMCache)();
     constructor(config) {
         // Önce Ollama dene, yoksa Groq
         this.config = {
@@ -91,15 +109,70 @@ class LLMClient {
         }
     }
     /**
+     * Retry wrapper with exponential backoff
+     */
+    async withRetry(operation, context) {
+        const maxAttempts = this.config.retryAttempts ?? 3;
+        const baseDelay = this.config.retryDelay ?? 1000;
+        let lastError = null;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return await operation();
+            }
+            catch (error) {
+                lastError = error;
+                if (attempt < maxAttempts) {
+                    const delay = baseDelay * Math.pow(2, attempt - 1);
+                    this.logger.warn(`${context} - Attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms...`, { error: lastError.message });
+                    await this.sleep(delay);
+                }
+            }
+        }
+        this.logger.error(`${context} - All ${maxAttempts} attempts failed`, { error: lastError?.message });
+        throw lastError;
+    }
+    /**
+     * Sleep utility
+     */
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    /**
      * LLM'e mesaj gönder
      */
     async chat(messages) {
-        if (this.config.provider === 'ollama') {
-            return this.chatOllama(messages);
+        // Cache key oluştur
+        const cacheKey = {
+            messages: messages.map(m => m.content).join('|'),
+            model: this.config.model,
+            temperature: this.config.temperature,
+        };
+        // Cache kontrolü
+        if (this.config.useCache !== false) {
+            const cached = this.cache.getResponse(cacheKey.messages, cacheKey.model, cacheKey.temperature);
+            if (cached) {
+                this.logger.debug('Cache hit for LLM request');
+                return {
+                    content: cached,
+                    model: this.config.model,
+                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+                };
+            }
         }
-        else {
-            return this.chatOpenAIFormat(messages);
+        // API çağrısı with retry
+        const response = await this.withRetry(async () => {
+            if (this.config.provider === 'ollama') {
+                return this.chatOllama(messages);
+            }
+            else {
+                return this.chatOpenAIFormat(messages);
+            }
+        }, `LLM chat (${this.config.provider})`);
+        // Cache'e kaydet
+        if (this.config.useCache !== false && response.content) {
+            this.cache.setResponse(cacheKey.messages, cacheKey.model, response.content, cacheKey.temperature);
         }
+        return response;
     }
     /**
      * Ollama API
@@ -138,7 +211,7 @@ class LLMClient {
             };
         }
         catch (error) {
-            console.error('Ollama hatası:', error);
+            this.logger.error('Ollama hatası:', { error: error.message });
             throw new Error('Ollama bağlantı hatası. Ollama çalışıyor mu?');
         }
     }
@@ -177,9 +250,10 @@ class LLMClient {
         };
     }
     /**
-     * HTTP request helper
+     * HTTP request helper with configurable timeout
      */
     httpRequest(options, body, useHttps = false) {
+        const timeout = this.config.timeout ?? 60000;
         return new Promise((resolve, reject) => {
             const lib = useHttps ? https : http;
             const req = lib.request(options, (res) => {
@@ -193,7 +267,7 @@ class LLMClient {
                 });
             });
             req.on('error', reject);
-            req.setTimeout(60000, () => {
+            req.setTimeout(timeout, () => {
                 req.destroy();
                 reject(new Error('Request timeout'));
             });
@@ -223,6 +297,7 @@ exports.LLMClient = LLMClient;
 class ReasoningEngine {
     llm;
     systemPrompt;
+    logger = (0, logger_1.getLogger)().child('Reasoning');
     constructor(llmConfig) {
         this.llm = new LLMClient(llmConfig);
         this.systemPrompt = `Sen bir kod analiz uzmanısın. Türkçe cevap ver.
@@ -269,7 +344,7 @@ Cevaplarında:
             return this.parseResponse(response.content);
         }
         catch (error) {
-            console.error('Reasoning hatası:', error);
+            this.logger.error('Reasoning hatası:', { error: error.message });
             return {
                 answer: 'LLM bağlantı hatası. Ollama çalışıyor mu? `ollama serve` komutunu deneyin.',
                 confidence: 0,

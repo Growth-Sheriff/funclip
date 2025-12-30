@@ -5,6 +5,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { getLogger } from '../core/logger';
+
+const logger = getLogger().child('KnowledgeGraph');
 
 export interface GraphNode {
   id: string;
@@ -384,7 +387,7 @@ export class KnowledgeGraph {
     }
 
     fs.writeFileSync(this.persistPath, JSON.stringify(data));
-    console.log(`💾 Knowledge graph kaydedildi: ${this.persistPath}`);
+    logger.info(`💾 Knowledge graph kaydedildi: ${this.persistPath}`);
   }
 
   /**
@@ -429,9 +432,9 @@ export class KnowledgeGraph {
         this.inEdges.get(edge.target)!.add(edge.id);
       }
 
-      console.log(`📂 Knowledge graph yüklendi: ${this.nodes.size} node, ${this.edges.size} edge`);
+      logger.info(`📂 Knowledge graph yüklendi: ${this.nodes.size} node, ${this.edges.size} edge`);
     } catch (error) {
-      console.error('Knowledge graph yükleme hatası:', error);
+      logger.error('Knowledge graph yükleme hatası:', { error: (error as Error).message });
     }
   }
 }

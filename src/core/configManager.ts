@@ -1,0 +1,380 @@
+/**
+ * FuncLib v4 - Merkezi Konfigürasyon Yönetimi
+ * 
+ * Tüm modüllerin konfigürasyonlarını tek yerden yönetir.
+ * Environment variables, defaults, validation desteği.
+ */
+
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+
+// ========================
+// Config Types
+// ========================
+
+export interface LLMSettings {
+  provider: 'ollama' | 'groq' | 'together' | 'openai';
+  model: string;
+  baseUrl: string;
+  apiKey?: string;
+  temperature: number;
+  maxTokens: number;
+  timeout: number;
+  retryAttempts: number;
+  retryDelay: number;
+}
+
+export interface VectorSettings {
+  dimensions: number;
+  persistPath: string;
+  autoSave: boolean;
+  similarityThreshold: number;
+}
+
+export interface GraphSettings {
+  persistPath: string;
+  autoLoad: boolean;
+  maxNodes: number;
+  maxEdges: number;
+}
+
+export interface CacheSettings {
+  enabled: boolean;
+  ttl: number;           // seconds
+  maxSize: number;       // MB
+  persistPath: string;
+}
+
+export interface LogSettings {
+  level: 'debug' | 'info' | 'warn' | 'error' | 'silent';
+  format: 'text' | 'json';
+  timestamps: boolean;
+  colors: boolean;
+  file?: string;
+}
+
+export interface IndexSettings {
+  include: string[];
+  exclude: string[];
+  maxFileSize: number;   // bytes
+  watchMode: boolean;
+}
+
+export interface FuncLibConfig {
+  projectPath: string;
+  llm: LLMSettings;
+  vector: VectorSettings;
+  graph: GraphSettings;
+  cache: CacheSettings;
+  log: LogSettings;
+  index: IndexSettings;
+}
+
+// ========================
+// Default Configuration
+// ========================
+
+const DEFAULT_CONFIG: Omit<FuncLibConfig, 'projectPath'> = {
+  llm: {
+    provider: 'ollama',
+    model: 'llama3.2',
+    baseUrl: 'http://localhost:11434',
+    temperature: 0.7,
+    maxTokens: 2048,
+    timeout: 60000,        // 60 seconds
+    retryAttempts: 3,
+    retryDelay: 1000,      // 1 second
+  },
+  vector: {
+    dimensions: 384,
+    persistPath: '.funclib/vectors',
+    autoSave: true,
+    similarityThreshold: 0.7,
+  },
+  graph: {
+    persistPath: '.funclib/graph.json',
+    autoLoad: true,
+    maxNodes: 100000,
+    maxEdges: 500000,
+  },
+  cache: {
+    enabled: true,
+    ttl: 3600,             // 1 hour
+    maxSize: 100,          // 100 MB
+    persistPath: '.funclib/cache',
+  },
+  log: {
+    level: 'info',
+    format: 'text',
+    timestamps: true,
+    colors: true,
+  },
+  index: {
+    include: ['**/*.ts', '**/*.js', '**/*.py', '**/*.go', '**/*.rs', '**/*.java', '**/*.vue'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/build/**'],
+    maxFileSize: 1024 * 1024,  // 1 MB
+    watchMode: false,
+  },
+};
+
+// ========================
+// Config Manager Class
+// ========================
+
+class ConfigManager {
+  private config: FuncLibConfig;
+  private configPath: string;
+  private initialized: boolean = false;
+
+  constructor() {
+    this.config = {
+      projectPath: process.cwd(),
+      ...DEFAULT_CONFIG,
+    };
+    this.configPath = '';
+  }
+
+  /**
+   * Initialize configuration for a project
+   */
+  init(projectPath: string): void {
+    this.config.projectPath = projectPath;
+    this.configPath = join(projectPath, '.funclib', 'config.json');
+    
+    // Load from environment variables
+    this.loadFromEnv();
+    
+    // Load from config file if exists
+    this.loadFromFile();
+    
+    this.initialized = true;
+  }
+
+  /**
+   * Load configuration from environment variables
+   */
+  private loadFromEnv(): void {
+    const env = process.env;
+
+    // LLM settings
+    if (env.FUNCLIB_LLM_PROVIDER) {
+      this.config.llm.provider = env.FUNCLIB_LLM_PROVIDER as LLMSettings['provider'];
+    }
+    if (env.FUNCLIB_LLM_MODEL) {
+      this.config.llm.model = env.FUNCLIB_LLM_MODEL;
+    }
+    if (env.OLLAMA_HOST) {
+      this.config.llm.baseUrl = env.OLLAMA_HOST;
+    }
+    if (env.GROQ_API_KEY) {
+      this.config.llm.apiKey = env.GROQ_API_KEY;
+      this.config.llm.provider = 'groq';
+    }
+    if (env.TOGETHER_API_KEY) {
+      this.config.llm.apiKey = env.TOGETHER_API_KEY;
+      this.config.llm.provider = 'together';
+    }
+    if (env.OPENAI_API_KEY) {
+      this.config.llm.apiKey = env.OPENAI_API_KEY;
+      this.config.llm.provider = 'openai';
+    }
+    if (env.FUNCLIB_LLM_TIMEOUT) {
+      this.config.llm.timeout = parseInt(env.FUNCLIB_LLM_TIMEOUT, 10);
+    }
+    if (env.FUNCLIB_LLM_RETRY) {
+      this.config.llm.retryAttempts = parseInt(env.FUNCLIB_LLM_RETRY, 10);
+    }
+
+    // Log settings
+    if (env.FUNCLIB_LOG_LEVEL) {
+      this.config.log.level = env.FUNCLIB_LOG_LEVEL as LogSettings['level'];
+    }
+    if (env.FUNCLIB_LOG_FORMAT) {
+      this.config.log.format = env.FUNCLIB_LOG_FORMAT as LogSettings['format'];
+    }
+
+    // Cache settings
+    if (env.FUNCLIB_CACHE_ENABLED) {
+      this.config.cache.enabled = env.FUNCLIB_CACHE_ENABLED === 'true';
+    }
+    if (env.FUNCLIB_CACHE_TTL) {
+      this.config.cache.ttl = parseInt(env.FUNCLIB_CACHE_TTL, 10);
+    }
+  }
+
+  /**
+   * Load configuration from file
+   */
+  private loadFromFile(): void {
+    if (existsSync(this.configPath)) {
+      try {
+        const fileContent = readFileSync(this.configPath, 'utf-8');
+        const fileConfig = JSON.parse(fileContent);
+        this.config = this.mergeDeep(this.config, fileConfig);
+      } catch (error) {
+        // Ignore parse errors, use defaults
+      }
+    }
+  }
+
+  /**
+   * Save current configuration to file
+   */
+  save(): void {
+    const dir = dirname(this.configPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    
+    // Don't save projectPath (it's runtime-specific)
+    const { projectPath, ...configToSave } = this.config;
+    writeFileSync(this.configPath, JSON.stringify(configToSave, null, 2), 'utf-8');
+  }
+
+  /**
+   * Get entire configuration
+   */
+  getAll(): FuncLibConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Get specific section
+   */
+  get<K extends keyof FuncLibConfig>(key: K): FuncLibConfig[K] {
+    return this.config[key];
+  }
+
+  /**
+   * Update configuration
+   */
+  set<K extends keyof FuncLibConfig>(key: K, value: Partial<FuncLibConfig[K]>): void {
+    if (typeof this.config[key] === 'object' && !Array.isArray(this.config[key])) {
+      this.config[key] = { ...this.config[key], ...value } as FuncLibConfig[K];
+    } else {
+      this.config[key] = value as FuncLibConfig[K];
+    }
+  }
+
+  /**
+   * Update entire section
+   */
+  update(updates: Partial<FuncLibConfig>): void {
+    this.config = this.mergeDeep(this.config, updates);
+  }
+
+  /**
+   * Reset to defaults
+   */
+  reset(): void {
+    this.config = {
+      projectPath: this.config.projectPath,
+      ...DEFAULT_CONFIG,
+    };
+  }
+
+  /**
+   * Get absolute path relative to project
+   */
+  resolvePath(relativePath: string): string {
+    if (relativePath.startsWith('/') || relativePath.match(/^[A-Z]:/i)) {
+      return relativePath;
+    }
+    return join(this.config.projectPath, relativePath);
+  }
+
+  /**
+   * Deep merge utility
+   */
+  private mergeDeep<T>(target: T, source: Partial<T>): T {
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source[key] !== undefined) {
+        if (
+          typeof source[key] === 'object' &&
+          source[key] !== null &&
+          !Array.isArray(source[key]) &&
+          typeof result[key] === 'object' &&
+          result[key] !== null
+        ) {
+          result[key] = this.mergeDeep(result[key], source[key] as any);
+        } else {
+          result[key] = source[key] as any;
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Validate configuration
+   */
+  validate(): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    // LLM validation
+    if (!['ollama', 'groq', 'together', 'openai'].includes(this.config.llm.provider)) {
+      errors.push(`Invalid LLM provider: ${this.config.llm.provider}`);
+    }
+    if (this.config.llm.timeout < 1000) {
+      errors.push('LLM timeout should be at least 1000ms');
+    }
+    if (this.config.llm.retryAttempts < 0) {
+      errors.push('Retry attempts cannot be negative');
+    }
+
+    // Log validation
+    if (!['debug', 'info', 'warn', 'error', 'silent'].includes(this.config.log.level)) {
+      errors.push(`Invalid log level: ${this.config.log.level}`);
+    }
+
+    // Cache validation
+    if (this.config.cache.ttl < 0) {
+      errors.push('Cache TTL cannot be negative');
+    }
+    if (this.config.cache.maxSize < 1) {
+      errors.push('Cache max size should be at least 1 MB');
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  /**
+   * Check if initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  /**
+   * Print configuration (for debugging)
+   */
+  print(): void {
+    const logger = getLogger();
+    logger.info('📋 FuncLib Configuration:');
+    logger.info(`   Project: ${this.config.projectPath}`);
+    logger.info(`   LLM: ${this.config.llm.provider}/${this.config.llm.model}`);
+    logger.info(`   Log Level: ${this.config.log.level}`);
+    logger.info(`   Cache: ${this.config.cache.enabled ? 'enabled' : 'disabled'}`);
+  }
+}
+
+// ========================
+// Singleton Instance
+// ========================
+
+let configManagerInstance: ConfigManager | null = null;
+
+export function getConfigManager(): ConfigManager {
+  if (!configManagerInstance) {
+    configManagerInstance = new ConfigManager();
+  }
+  return configManagerInstance;
+}
+
+// Forward declaration for circular dependency
+import { getLogger } from './logger';
+
+export { ConfigManager };

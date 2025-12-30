@@ -1,10 +1,14 @@
 /**
  * FuncLib v4 - LLM Reasoning Engine
  * Ollama ile lokal LLM entegrasyonu
+ * 
+ * v4.1: Retry, Timeout, Cache desteği eklendi
  */
 
 import * as http from 'http';
 import * as https from 'https';
+import { getLLMCache } from '../core/cache';
+import { getLogger } from '../core/logger';
 
 export interface LLMConfig {
   provider: 'ollama' | 'groq' | 'together';
@@ -13,6 +17,10 @@ export interface LLMConfig {
   apiKey?: string;
   temperature?: number;
   maxTokens?: number;
+  timeout?: number;          // ms, default 60000
+  retryAttempts?: number;    // default 3
+  retryDelay?: number;       // ms, default 1000
+  useCache?: boolean;        // default true
 }
 
 export interface LLMMessage {
@@ -45,6 +53,10 @@ const DEFAULT_CONFIGS: Record<string, LLMConfig> = {
     baseUrl: 'http://localhost:11434',
     temperature: 0.3,
     maxTokens: 2000,
+    timeout: 60000,
+    retryAttempts: 3,
+    retryDelay: 1000,
+    useCache: true,
   },
   groq: {
     provider: 'groq',
@@ -52,6 +64,10 @@ const DEFAULT_CONFIGS: Record<string, LLMConfig> = {
     baseUrl: 'https://api.groq.com/openai/v1',
     temperature: 0.3,
     maxTokens: 2000,
+    timeout: 30000,
+    retryAttempts: 3,
+    retryDelay: 1000,
+    useCache: true,
   },
   together: {
     provider: 'together',
@@ -59,11 +75,17 @@ const DEFAULT_CONFIGS: Record<string, LLMConfig> = {
     baseUrl: 'https://api.together.xyz/v1',
     temperature: 0.3,
     maxTokens: 2000,
+    timeout: 30000,
+    retryAttempts: 3,
+    retryDelay: 1000,
+    useCache: true,
   },
 };
 
 export class LLMClient {
   private config: LLMConfig;
+  private logger = getLogger().child('LLM');
+  private cache = getLLMCache();
 
   constructor(config?: Partial<LLMConfig>) {
     // Önce Ollama dene, yoksa Groq
@@ -91,14 +113,90 @@ export class LLMClient {
   }
 
   /**
+   * Retry wrapper with exponential backoff
+   */
+  private async withRetry<T>(operation: () => Promise<T>, context: string): Promise<T> {
+    const maxAttempts = this.config.retryAttempts ?? 3;
+    const baseDelay = this.config.retryDelay ?? 1000;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error as Error;
+        
+        if (attempt < maxAttempts) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          this.logger.warn(
+            `${context} - Attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms...`,
+            { error: lastError.message }
+          );
+          await this.sleep(delay);
+        }
+      }
+    }
+
+    this.logger.error(`${context} - All ${maxAttempts} attempts failed`, { error: lastError?.message });
+    throw lastError;
+  }
+
+  /**
+   * Sleep utility
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
    * LLM'e mesaj gönder
    */
   async chat(messages: LLMMessage[]): Promise<LLMResponse> {
-    if (this.config.provider === 'ollama') {
-      return this.chatOllama(messages);
-    } else {
-      return this.chatOpenAIFormat(messages);
+    // Cache key oluştur
+    const cacheKey = {
+      messages: messages.map(m => m.content).join('|'),
+      model: this.config.model,
+      temperature: this.config.temperature,
+    };
+
+    // Cache kontrolü
+    if (this.config.useCache !== false) {
+      const cached = this.cache.getResponse(
+        cacheKey.messages,
+        cacheKey.model,
+        cacheKey.temperature
+      );
+      
+      if (cached) {
+        this.logger.debug('Cache hit for LLM request');
+        return {
+          content: cached,
+          model: this.config.model,
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        };
+      }
     }
+
+    // API çağrısı with retry
+    const response = await this.withRetry(async () => {
+      if (this.config.provider === 'ollama') {
+        return this.chatOllama(messages);
+      } else {
+        return this.chatOpenAIFormat(messages);
+      }
+    }, `LLM chat (${this.config.provider})`);
+
+    // Cache'e kaydet
+    if (this.config.useCache !== false && response.content) {
+      this.cache.setResponse(
+        cacheKey.messages,
+        cacheKey.model,
+        response.content,
+        cacheKey.temperature
+      );
+    }
+
+    return response;
   }
 
   /**
@@ -141,7 +239,7 @@ export class LLMClient {
         },
       };
     } catch (error) {
-      console.error('Ollama hatası:', error);
+      this.logger.error('Ollama hatası:', { error: (error as Error).message });
       throw new Error('Ollama bağlantı hatası. Ollama çalışıyor mu?');
     }
   }
@@ -187,13 +285,15 @@ export class LLMClient {
   }
 
   /**
-   * HTTP request helper
+   * HTTP request helper with configurable timeout
    */
   private httpRequest(
     options: http.RequestOptions,
     body?: string,
     useHttps: boolean = false
   ): Promise<{ statusCode: number; body: string }> {
+    const timeout = this.config.timeout ?? 60000;
+    
     return new Promise((resolve, reject) => {
       const lib = useHttps ? https : http;
       
@@ -209,7 +309,7 @@ export class LLMClient {
       });
 
       req.on('error', reject);
-      req.setTimeout(60000, () => {
+      req.setTimeout(timeout, () => {
         req.destroy();
         reject(new Error('Request timeout'));
       });
@@ -242,6 +342,7 @@ export class LLMClient {
 export class ReasoningEngine {
   private llm: LLMClient;
   private systemPrompt: string;
+  private logger = getLogger().child('Reasoning');
 
   constructor(llmConfig?: Partial<LLMConfig>) {
     this.llm = new LLMClient(llmConfig);
@@ -299,7 +400,7 @@ Cevaplarında:
 
       return this.parseResponse(response.content);
     } catch (error) {
-      console.error('Reasoning hatası:', error);
+      this.logger.error('Reasoning hatası:', { error: (error as Error).message });
       return {
         answer: 'LLM bağlantı hatası. Ollama çalışıyor mu? `ollama serve` komutunu deneyin.',
         confidence: 0,

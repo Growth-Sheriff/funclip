@@ -8,6 +8,9 @@ import * as path from 'path';
 import IndexManager from './indexManager';
 import { QueryEngine } from './output/queryEngine';
 import { SearchOptions, SymbolKind, Language } from './types';
+import { getLogger } from './core/logger';
+
+const logger = getLogger().child('Server');
 
 const app = express();
 app.use(cors());
@@ -746,7 +749,7 @@ app.post('/copilot', (req: Request, res: Response) => {
 
 // Error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('API Error:', err);
+  logger.error('API Error:', { error: err.message, stack: err.stack });
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 

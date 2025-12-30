@@ -5,6 +5,9 @@
 
 // @ts-ignore - Transformers.js types
 import { pipeline } from '@xenova/transformers';
+import { getLogger } from '../core/logger';
+
+const logger = getLogger().child('Embedder');
 
 export interface EmbeddingResult {
   text: string;
@@ -50,16 +53,16 @@ export class CodeEmbedder {
   }
 
   private async loadModel(): Promise<void> {
-    console.log(`📦 Model yükleniyor: ${this.modelName}`);
+    logger.info(`📦 Model yükleniyor: ${this.modelName}`);
     const startTime = Date.now();
     
     try {
       this.model = await pipeline('feature-extraction', this.modelName, {
         quantized: true, // Daha hızlı, daha az bellek
       });
-      console.log(`✅ Model yüklendi (${Date.now() - startTime}ms)`);
+      logger.info(`✅ Model yüklendi (${Date.now() - startTime}ms)`);
     } catch (error) {
-      console.error('❌ Model yükleme hatası:', error);
+      logger.error('❌ Model yükleme hatası:', { error: (error as Error).message });
       throw error;
     }
   }

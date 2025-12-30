@@ -40,8 +40,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.VectorStore = void 0;
 exports.getVectorStore = getVectorStore;
 const codeEmbedder_1 = require("../embeddings/codeEmbedder");
+const logger_1 = require("../core/logger");
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const logger = (0, logger_1.getLogger)().child('VectorStore');
 class VectorStore {
     documents = new Map();
     embeddings = new Map();
@@ -80,7 +82,7 @@ class VectorStore {
      * Çoklu döküman ekle (batch)
      */
     async addBatch(docs) {
-        console.log(`📥 ${docs.length} döküman ekleniyor...`);
+        logger.info(`📥 ${docs.length} döküman ekleniyor...`);
         const batchSize = 50;
         let processed = 0;
         for (let i = 0; i < docs.length; i += batchSize) {
@@ -88,10 +90,10 @@ class VectorStore {
             await Promise.all(batch.map(doc => this.add(doc)));
             processed += batch.length;
             if (processed % 100 === 0) {
-                console.log(`  → ${processed}/${docs.length} işlendi`);
+                logger.debug(`  → ${processed}/${docs.length} işlendi`);
             }
         }
-        console.log(`✅ ${docs.length} döküman eklendi`);
+        logger.info(`✅ ${docs.length} döküman eklendi`);
         // Persist
         if (this.persistPath) {
             await this.save();
@@ -219,7 +221,7 @@ class VectorStore {
         }
         fs.writeFileSync(this.persistPath, JSON.stringify(data));
         this.isDirty = false;
-        console.log(`💾 Vector store kaydedildi: ${this.persistPath}`);
+        logger.info(`💾 Vector store kaydedildi: ${this.persistPath}`);
     }
     /**
      * Disk'ten yükle
@@ -232,10 +234,10 @@ class VectorStore {
             this.documents = new Map(data.documents);
             this.embeddings = new Map(data.embeddings);
             this.collectionName = data.collectionName || 'default';
-            console.log(`📂 Vector store yüklendi: ${this.documents.size} döküman`);
+            logger.info(`📂 Vector store yüklendi: ${this.documents.size} döküman`);
         }
         catch (error) {
-            console.error('Vector store yükleme hatası:', error);
+            logger.error('Vector store yükleme hatası:', { error: error.message });
         }
     }
     /**

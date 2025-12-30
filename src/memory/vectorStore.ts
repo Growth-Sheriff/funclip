@@ -4,8 +4,11 @@
  */
 
 import { CodeEmbedder, getEmbedder } from '../embeddings/codeEmbedder';
+import { getLogger } from '../core/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const logger = getLogger().child('VectorStore');
 
 export interface VectorDocument {
   id: string;
@@ -77,7 +80,7 @@ export class VectorStore {
    * Çoklu döküman ekle (batch)
    */
   async addBatch(docs: Array<Omit<VectorDocument, 'embedding'>>): Promise<void> {
-    console.log(`📥 ${docs.length} döküman ekleniyor...`);
+    logger.info(`📥 ${docs.length} döküman ekleniyor...`);
     
     const batchSize = 50;
     let processed = 0;
@@ -88,11 +91,11 @@ export class VectorStore {
       processed += batch.length;
       
       if (processed % 100 === 0) {
-        console.log(`  → ${processed}/${docs.length} işlendi`);
+        logger.debug(`  → ${processed}/${docs.length} işlendi`);
       }
     }
     
-    console.log(`✅ ${docs.length} döküman eklendi`);
+    logger.info(`✅ ${docs.length} döküman eklendi`);
     
     // Persist
     if (this.persistPath) {
@@ -253,7 +256,7 @@ export class VectorStore {
 
     fs.writeFileSync(this.persistPath, JSON.stringify(data));
     this.isDirty = false;
-    console.log(`💾 Vector store kaydedildi: ${this.persistPath}`);
+    logger.info(`💾 Vector store kaydedildi: ${this.persistPath}`);
   }
 
   /**
@@ -267,9 +270,9 @@ export class VectorStore {
       this.documents = new Map(data.documents);
       this.embeddings = new Map(data.embeddings);
       this.collectionName = data.collectionName || 'default';
-      console.log(`📂 Vector store yüklendi: ${this.documents.size} döküman`);
+      logger.info(`📂 Vector store yüklendi: ${this.documents.size} döküman`);
     } catch (error) {
-      console.error('Vector store yükleme hatası:', error);
+      logger.error('Vector store yükleme hatası:', { error: (error as Error).message });
     }
   }
 
