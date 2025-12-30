@@ -48,6 +48,20 @@ export class IndexManager {
     };
   }
 
+  /**
+   * Get the raw index object
+   */
+  getIndex(): ProjectIndex {
+    return this.index;
+  }
+
+  /**
+   * Get project path
+   */
+  getProjectPath(): string {
+    return this.index.projectPath;
+  }
+
   private emptyStats(): IndexStats {
     return {
       totalFiles: 0,
@@ -465,10 +479,6 @@ export class IndexManager {
   setConfig(config: Partial<ProjectConfig>): void {
     this.index.config = { ...this.index.config, ...config };
     this.save();
-  }
-
-  getProjectPath(): string {
-    return this.index.projectPath;
   }
 
   clear(): void {

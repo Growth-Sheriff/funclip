@@ -66,6 +66,18 @@ class IndexManager {
             files: {},
         };
     }
+    /**
+     * Get the raw index object
+     */
+    getIndex() {
+        return this.index;
+    }
+    /**
+     * Get project path
+     */
+    getProjectPath() {
+        return this.index.projectPath;
+    }
     emptyStats() {
         return {
             totalFiles: 0,
@@ -427,9 +439,6 @@ class IndexManager {
     setConfig(config) {
         this.index.config = { ...this.index.config, ...config };
         this.save();
-    }
-    getProjectPath() {
-        return this.index.projectPath;
     }
     clear() {
         this.index.files = {};

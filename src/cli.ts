@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * FuncLib v2 - CLI Tool
+ * FuncLib v4 - CLI Tool
+ * AI-powered code intelligence
  */
 
 import * as path from 'path';
 import IndexManager from './indexManager';
 import { startServer } from './server';
 import { createMCPServer } from './mcp';
+import { QueryEngine } from './output/queryEngine';
+import { getReasoningEngine } from './reasoning/llmClient';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -31,12 +34,12 @@ function log(msg: string, color: keyof typeof c = 'reset') {
 
 function printHelp() {
   console.log(`
-${c.bold}FuncLib v2 - Universal Symbol Index${c.reset}
+${c.bold}FuncLib v4 - AI-Powered Code Intelligence${c.reset}
 
 ${c.cyan}Usage:${c.reset}
   funclib <command> [options]
 
-${c.cyan}Commands:${c.reset}
+${c.cyan}Core Commands:${c.reset}
   ${c.green}index${c.reset}              Index the project (Tree-sitter AST)
   ${c.green}search${c.reset} <query>     Search for symbols
   ${c.green}refs${c.reset} <name>        Find all references
@@ -45,6 +48,14 @@ ${c.cyan}Commands:${c.reset}
   ${c.green}file${c.reset} <path>        Show symbols in file
   ${c.green}stats${c.reset}              Show index statistics
   ${c.green}graph${c.reset}              Show call graph
+
+${c.cyan}AI Commands (v4):${c.reset}
+  ${c.magenta}ask${c.reset} <question>    Ask anything about the code (semantic + LLM)
+  ${c.magenta}impact${c.reset} <symbol>   Analyze change impact
+  ${c.magenta}bugs${c.reset} [file]       Predict potential bugs
+  ${c.magenta}build-ai${c.reset}          Build vector index & knowledge graph
+
+${c.cyan}Server Commands:${c.reset}
   ${c.green}serve${c.reset}              Start REST API server (port 3456)
   ${c.green}mcp${c.reset}                Start MCP server for Copilot (port 3457)
 
@@ -54,6 +65,9 @@ ${c.cyan}Examples:${c.reset}
   funclib refs fetchData
   funclib symbol UserService
   funclib list function
+  funclib ask "sepete ürün ekleme nerede?"
+  funclib impact useEditorStore
+  funclib bugs src/services/
   funclib serve
   funclib mcp
 
@@ -61,6 +75,14 @@ ${c.cyan}Environment:${c.reset}
   FUNCLIB_PROJECT    Project directory (default: cwd)
   PORT               REST API server port (default: 3456)
   MCP_PORT           MCP server port (default: 3457)
+  GROQ_API_KEY       Groq API key (optional, for cloud LLM)
+
+${c.cyan}AI Features:${c.reset}
+  • Semantic code search (Transformers.js)
+  • Natural language queries
+  • Bug prediction
+  • Change impact analysis
+  • LLM reasoning (Ollama/Groq)
 
 ${c.cyan}Supported Languages:${c.reset}
   JavaScript, TypeScript, Python, Go, Rust, Java, Kotlin,
@@ -331,6 +353,158 @@ async function main() {
       log('\n🤖 Starting MCP server...', 'cyan');
       const mcpPort = parseInt(process.env.MCP_PORT || '3457');
       createMCPServer(mcpPort);
+      break;
+    }
+
+    // ============ AI COMMANDS (v4) ============
+
+    case 'ask': {
+      const question = args.slice(1).join(' ');
+      if (!question) {
+        log('❌ Question required: funclib ask "your question"', 'red');
+        process.exit(1);
+      }
+
+      const queryEngine = new QueryEngine(PROJECT_PATH);
+      const ready = await queryEngine.checkReady();
+
+      if (!ready.indexReady) {
+        log('⚠️ Index bulunamadı. Önce `funclib index` çalıştırın.', 'yellow');
+        break;
+      }
+
+      if (!ready.vectorReady) {
+        log('💡 Vector index yok. `funclib build-ai` ile AI özelliklerini aktif edin.', 'dim');
+      }
+
+      log(`\n🧠 Sorgunuz: "${question}"\n`, 'cyan');
+      
+      const result = await queryEngine.ask(question, {
+        useLLM: ready.llmReady,
+        maxResults: 10,
+        includeCode: true,
+      });
+
+      log(result.answer, 'reset');
+      
+      if (result.relevantCode.length > 0) {
+        log('\n📍 İlgili Kodlar:', 'cyan');
+        for (const code of result.relevantCode.slice(0, 5)) {
+          log(`   ${code.name} (${code.kind}) @ ${code.file}:${code.line}`, 'dim');
+        }
+      }
+
+      if (result.suggestions.length > 0) {
+        log('\n💡 Öneriler:', 'yellow');
+        result.suggestions.forEach((s, i) => log(`   ${i + 1}. ${s}`, 'reset'));
+      }
+
+      log(`\n📊 Güven: ${(result.confidence * 100).toFixed(0)}%`, 'dim');
+      console.log();
+      break;
+    }
+
+    case 'impact': {
+      const symbolName = args[1];
+      if (!symbolName) {
+        log('❌ Symbol name required: funclib impact <symbol>', 'red');
+        process.exit(1);
+      }
+
+      log(`\n🔍 Etki analizi: "${symbolName}"\n`, 'cyan');
+
+      const queryEngine = new QueryEngine(PROJECT_PATH);
+      const result = await queryEngine.analyzeChange(symbolName);
+
+      log(result.answer, 'reset');
+
+      if (result.suggestions.length > 0) {
+        log('\n💡 Öneriler:', 'yellow');
+        result.suggestions.forEach((s, i) => log(`   ${i + 1}. ${s}`, 'reset'));
+      }
+      console.log();
+      break;
+    }
+
+    case 'bugs': {
+      const filePath = args[1];
+      
+      log(`\n🐛 Bug tahmini${filePath ? `: ${filePath}` : ' (proje geneli)'}...\n`, 'cyan');
+
+      const queryEngine = new QueryEngine(PROJECT_PATH);
+      const ready = await queryEngine.checkReady();
+
+      if (!ready.llmReady) {
+        log('⚠️ LLM bağlantısı yok.', 'yellow');
+        log('   Ollama kurun: winget install Ollama.Ollama', 'dim');
+        log('   Başlatın: ollama serve', 'dim');
+        log('   Model: ollama pull codellama:7b\n', 'dim');
+        break;
+      }
+
+      const result = await queryEngine.predictBugs(filePath);
+
+      log(result.answer, 'reset');
+
+      if (result.suggestions.length > 0) {
+        log('\n💡 Öneriler:', 'yellow');
+        result.suggestions.forEach((s, i) => log(`   ${i + 1}. ${s}`, 'reset'));
+      }
+      console.log();
+      break;
+    }
+
+    case 'build-ai': {
+      log('\n🧠 AI Index oluşturuluyor...\n', 'cyan');
+
+      const queryEngine = new QueryEngine(PROJECT_PATH);
+      const ready = await queryEngine.checkReady();
+
+      if (!ready.indexReady) {
+        log('⚠️ Önce `funclib index` çalıştırın.\n', 'yellow');
+        break;
+      }
+
+      // 1. Knowledge Graph
+      log('📊 Knowledge Graph...', 'reset');
+      queryEngine.buildKnowledgeGraph();
+
+      // 2. Vector Index
+      log('\n🔢 Vector Embeddings...', 'reset');
+      await queryEngine.buildVectorIndex();
+
+      // 3. LLM durumu
+      const health = await getReasoningEngine().checkHealth();
+      if (health.available) {
+        log(`\n✅ LLM: ${health.model} (${health.provider})`, 'green');
+      } else {
+        log('\n⚠️ LLM bağlantısı yok. AI sorguları sınırlı çalışacak.', 'yellow');
+        log('   Ollama kurun: winget install Ollama.Ollama', 'dim');
+      }
+
+      log('\n🎉 AI index hazır! `funclib ask` kullanabilirsiniz.\n', 'green');
+      break;
+    }
+
+    case 'status': {
+      log('\n📊 FuncLib v4 Durum\n', 'cyan');
+
+      const queryEngine = new QueryEngine(PROJECT_PATH);
+      const ready = await queryEngine.checkReady();
+
+      log(`   AST Index:      ${ready.indexReady ? '✅' : '❌'} (${ready.symbolCount} sembol)`, 'reset');
+      log(`   Vector Store:   ${ready.vectorReady ? '✅' : '❌'} (${ready.vectorCount} vektör)`, 'reset');
+      log(`   Knowledge Graph: ${ready.graphReady ? '✅' : '❌'} (${ready.nodeCount} node)`, 'reset');
+      log(`   LLM:            ${ready.llmReady ? '✅' : '❌'}`, 'reset');
+
+      if (!ready.indexReady) {
+        log('\n   💡 `funclib index` çalıştırın', 'dim');
+      } else if (!ready.vectorReady) {
+        log('\n   💡 `funclib build-ai` çalıştırın', 'dim');
+      } else if (!ready.llmReady) {
+        log('\n   💡 `ollama serve` başlatın', 'dim');
+      }
+      console.log();
       break;
     }
 

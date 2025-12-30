@@ -1,7 +1,7 @@
 {
   "name": "funclib",
-  "version": "2.0.0",
-  "description": "Universal Symbol Index - Tree-sitter based code analysis for all languages",
+  "version": "4.0.0",
+  "description": "AI-Powered Code Intelligence - Semantic search, bug prediction, impact analysis",
   "main": "dist/server.js",
   "bin": {
     "funclib": "dist/cli.js"
@@ -15,6 +15,8 @@
     "index": "node dist/cli.js index",
     "search": "node dist/cli.js search",
     "refs": "node dist/cli.js refs",
+    "ask": "node dist/cli.js ask",
+    "build-ai": "node dist/cli.js build-ai",
     "dev": "tsc --watch"
   },
   "keywords": [
@@ -25,7 +27,13 @@
     "references",
     "copilot",
     "mcp",
-    "ast"
+    "ast",
+    "ai",
+    "semantic-search",
+    "embeddings",
+    "llm",
+    "bug-prediction",
+    "impact-analysis"
   ],
   "author": "",
   "license": "MIT",
@@ -33,7 +41,10 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "chokidar": "^3.5.3",
+    "chromadb": "^3.2.0",
+    "chromadb-default-embed": "^2.14.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "glob": "^10.3.10",

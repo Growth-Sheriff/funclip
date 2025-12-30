@@ -1,12 +1,20 @@
 /**
  * Index Manager - Symbol database and search
  */
-import { Symbol, FileIndex, ProjectConfig, IndexStats, SearchOptions, SearchResult, CallGraph, RefsResponse } from './types';
+import { Symbol, FileIndex, ProjectIndex, ProjectConfig, IndexStats, SearchOptions, SearchResult, CallGraph, RefsResponse } from './types';
 export declare class IndexManager {
     private index;
     private parser;
     private indexPath;
     constructor(projectPath: string, indexPath?: string);
+    /**
+     * Get the raw index object
+     */
+    getIndex(): ProjectIndex;
+    /**
+     * Get project path
+     */
+    getProjectPath(): string;
     private emptyStats;
     load(): boolean;
     save(): void;
@@ -32,7 +40,6 @@ export declare class IndexManager {
     getStats(): IndexStats;
     getConfig(): ProjectConfig;
     setConfig(config: Partial<ProjectConfig>): void;
-    getProjectPath(): string;
     clear(): void;
 }
 export default IndexManager;

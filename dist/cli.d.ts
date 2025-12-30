@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
- * FuncLib v2 - CLI Tool
+ * FuncLib v4 - CLI Tool
+ * AI-powered code intelligence
  */
 export {};
