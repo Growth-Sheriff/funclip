@@ -93,6 +93,9 @@ ${c.cyan}AI Commands (v4):${c.reset}
   ${c.magenta}complexity${c.reset} <file> Calculate code complexity metrics
   ${c.magenta}markers${c.reset}           Find TODO/FIXME/HACK in code
   ${c.magenta}trends${c.reset}            Show project change trends
+  ${c.magenta}guide${c.reset} <file>      Get Copilot guidance for file
+  ${c.magenta}learn${c.reset}             Show learned preferences & stats
+  ${c.magenta}patterns${c.reset}          Show cross-project patterns
 
 ${c.cyan}Server Commands:${c.reset}
   ${c.green}serve${c.reset}              Start REST API server (port 3456)
@@ -109,6 +112,9 @@ ${c.cyan}Examples:${c.reset}
   funclib ask "sepete ürün ekleme nerede?"
   funclib impact useEditorStore
   funclib bugs src/services/
+  funclib guide src/utils.ts
+  funclib learn
+  funclib patterns
   funclib serve
   funclib mcp
 
@@ -661,6 +667,129 @@ async function main() {
                     log(`   ${a.type}: ${a.file || a.commit}`, 'reset');
                     log(`   └─ ${a.description}`, 'dim');
                 }
+            }
+            console.log();
+            break;
+        }
+        // ============ NEW AI COMMANDS (v4.1) ============
+        case 'guide': {
+            const targetFile = args[1];
+            if (!targetFile) {
+                log('❌ Dosya yolu gerekli: funclib guide <file>', 'red');
+                process.exit(1);
+            }
+            log(`\n🎯 Copilot Kılavuzu: ${targetFile}\n`, 'cyan');
+            const { getCopilotGuide } = await Promise.resolve().then(() => __importStar(require('./output/copilotGuide')));
+            const guide = getCopilotGuide();
+            const fs = await Promise.resolve().then(() => __importStar(require('fs')));
+            const fullPath = path.resolve(PROJECT_PATH, targetFile);
+            if (!fs.existsSync(fullPath)) {
+                log(`❌ Dosya bulunamadı: ${fullPath}`, 'red');
+                break;
+            }
+            const code = fs.readFileSync(fullPath, 'utf-8');
+            const lines = code.split('\n');
+            const prefix = lines.slice(0, 20).join('\n');
+            const suffix = lines.slice(-20).join('\n');
+            const context = guide.prepareContext(targetFile);
+            if (context.relatedSymbols.length > 0) {
+                log('📦 İlgili Semboller:', 'reset');
+                for (const sym of context.relatedSymbols.slice(0, 10)) {
+                    log(`   ${sym.name} (${sym.kind})`, 'dim');
+                }
+                console.log();
+            }
+            if (context.recentChanges.length > 0) {
+                log('📝 Son Değişiklikler:', 'reset');
+                for (const change of context.recentChanges.slice(0, 5)) {
+                    const date = change.date.toISOString().split('T')[0];
+                    log(`   ${date}: ${change.type} ${change.symbol}`, 'dim');
+                }
+                console.log();
+            }
+            if (context.patterns.length > 0) {
+                log('🔄 Önerilen Pattern\'lar:', 'reset');
+                for (const pattern of context.patterns.slice(0, 5)) {
+                    log(`   ${pattern.name} (${pattern.frequency} kullanım)`, 'dim');
+                    if (pattern.description)
+                        log(`   └─ ${pattern.description}`, 'dim');
+                }
+                console.log();
+            }
+            if (context.warnings.length > 0) {
+                log('⚠️ Uyarılar:', 'yellow');
+                for (const warn of context.warnings) {
+                    const icon = warn.severity === 'error' ? '🔴' : warn.severity === 'warning' ? '🟡' : '🔵';
+                    log(`   ${icon} ${warn.message}`, 'reset');
+                }
+                console.log();
+            }
+            console.log();
+            break;
+        }
+        case 'learn': {
+            log('\n🧠 Öğrenme İstatistikleri\n', 'cyan');
+            const { getSelfLearning } = await Promise.resolve().then(() => __importStar(require('./reasoning/selfLearning')));
+            const learning = getSelfLearning();
+            const stats = learning.getStats();
+            const copilotStats = learning.getCopilotAcceptanceRate();
+            const stabilityScore = learning.getCommitStabilityScore();
+            log(`📊 Genel İstatistikler:`, 'reset');
+            log(`   Toplam Feedback:    ${stats.totalFeedbacks}`, 'dim');
+            log(`   Kabul Oranı:        ${(stats.acceptanceRate * 100).toFixed(1)}%`, 'dim');
+            log(`   Ortalama Reward:    ${stats.avgReward.toFixed(2)}`, 'dim');
+            log(`   Öğrenme Hızı:       ${stats.learningVelocity > 0 ? '↑' : '↓'} ${Math.abs(stats.learningVelocity * 100).toFixed(1)}%`, 'dim');
+            log(`\n🤖 Copilot İstatistikleri:`, 'reset');
+            log(`   Genel Kabul Oranı:  ${(copilotStats.overall * 100).toFixed(1)}%`, 'dim');
+            if (copilotStats.byContext.size > 0) {
+                log(`   Dosya Tipine Göre:`, 'dim');
+                for (const [ext, rate] of copilotStats.byContext) {
+                    log(`     .${ext}: ${(rate * 100).toFixed(1)}%`, 'dim');
+                }
+            }
+            log(`\n📦 Commit Stabilitesi: ${(stabilityScore * 100).toFixed(0)}%`, 'reset');
+            if (stats.topPatterns.length > 0) {
+                log(`\n🔝 En Önemli Pattern'lar:`, 'reset');
+                for (const pattern of stats.topPatterns.slice(0, 10)) {
+                    const direction = pattern.weight > 0 ? '✅' : '❌';
+                    log(`   ${direction} ${pattern.pattern} (${pattern.weight.toFixed(2)})`, 'dim');
+                }
+            }
+            console.log();
+            break;
+        }
+        case 'patterns': {
+            log('\n🔄 Cross-Project Pattern\'lar\n', 'cyan');
+            const { getCrossProjectKB } = await Promise.resolve().then(() => __importStar(require('./memory/crossProjectKB')));
+            const kb = getCrossProjectKB();
+            const mostUsed = kb.getMostUsedPatterns(undefined, 15);
+            if (mostUsed.length === 0) {
+                log('⚠️ Henüz pattern kaydedilmemiş.', 'yellow');
+                log('   Kod yazıldıkça pattern\'lar otomatik öğrenilecek.', 'dim');
+                break;
+            }
+            log('📚 En Çok Kullanılan Pattern\'lar:', 'reset');
+            for (const pattern of mostUsed) {
+                const bar = '█'.repeat(Math.ceil(pattern.frequency / (mostUsed[0].frequency || 1) * 15));
+                log(`\n   ${pattern.name}`, 'bold');
+                log(`   ${bar} ${pattern.frequency} kullanım, ${(pattern.confidence * 100).toFixed(0)}% güven`, 'dim');
+                log(`   Kategori: ${pattern.category}`, 'dim');
+                if (pattern.description) {
+                    log(`   ${truncate(pattern.description, 60)}`, 'dim');
+                }
+            }
+            // Anti-patterns
+            log('\n\n🚫 Anti-Pattern Kontrolleri:', 'yellow');
+            const sampleCode = 'const x: any = value; console.log(x);';
+            const antiPatterns = kb.detectAntiPatterns(sampleCode);
+            if (antiPatterns.length > 0) {
+                log('   Tespit edilen anti-pattern\'lar:', 'reset');
+                for (const ap of antiPatterns) {
+                    log(`   ❌ ${ap.antiPattern.name}: ${ap.antiPattern.solution}`, 'dim');
+                }
+            }
+            else {
+                log('   ✅ Örnek kodda anti-pattern yok', 'green');
             }
             console.log();
             break;

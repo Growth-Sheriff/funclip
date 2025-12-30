@@ -2,6 +2,39 @@
 /**
  * FuncLib v4 - REST API Server
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -310,6 +343,136 @@ app.post('/ai/build', asyncHandler(async (req, res) => {
         nodeCount: newStatus.nodeCount,
     });
 }));
+// ========================
+// AI Endpoints (v4.1)
+// ========================
+/**
+ * POST /ai/bugs - Predict bugs
+ */
+app.post('/ai/bugs', asyncHandler(async (req, res) => {
+    const { symbol, file } = req.body;
+    const { getBugPredictor } = await Promise.resolve().then(() => __importStar(require('./output/bugPredictor')));
+    const predictor = getBugPredictor();
+    if (symbol) {
+        const defs = indexManager.getAllDefinitions(symbol);
+        if (defs.length === 0) {
+            return res.status(404).json({ error: `Symbol not found: ${symbol}` });
+        }
+        const predictions = predictor.predictBugs(defs[0]);
+        return res.json({
+            symbol,
+            predictions: predictions.slice(0, 15),
+        });
+    }
+    if (file) {
+        const symbols = indexManager.getSymbolsInFile(file);
+        const allPredictions = [];
+        for (const sym of symbols.slice(0, 30)) {
+            const preds = predictor.predictBugs(sym);
+            allPredictions.push(...preds);
+        }
+        return res.json({
+            file,
+            predictions: allPredictions
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 20),
+        });
+    }
+    res.status(400).json({ error: 'Either symbol or file is required' });
+}));
+/**
+ * POST /ai/context - Get Copilot context
+ */
+app.post('/ai/context', asyncHandler(async (req, res) => {
+    const { file } = req.body;
+    if (!file) {
+        return res.status(400).json({ error: 'file is required' });
+    }
+    const { getCopilotGuide } = await Promise.resolve().then(() => __importStar(require('./output/copilotGuide')));
+    const guide = getCopilotGuide();
+    const context = guide.prepareContext(file);
+    res.json({
+        file,
+        relatedSymbols: context.relatedSymbols.slice(0, 15),
+        patterns: context.patterns.slice(0, 10),
+        warnings: context.warnings,
+    });
+}));
+/**
+ * POST /ai/evaluate - Evaluate suggestion
+ */
+app.post('/ai/evaluate', asyncHandler(async (req, res) => {
+    const { suggestion, file } = req.body;
+    if (!suggestion || !file) {
+        return res.status(400).json({ error: 'suggestion and file are required' });
+    }
+    const { getCopilotGuide } = await Promise.resolve().then(() => __importStar(require('./output/copilotGuide')));
+    const guide = getCopilotGuide();
+    const context = guide.prepareContext(file);
+    const evaluation = guide.evaluateSuggestion(suggestion, context);
+    res.json({
+        score: evaluation.score,
+        accepted: evaluation.accepted,
+        reasons: evaluation.reasons,
+        warnings: evaluation.warnings,
+        alternatives: evaluation.alternatives,
+    });
+}));
+/**
+ * GET /ai/patterns - Get cross-project patterns
+ */
+app.get('/ai/patterns', asyncHandler(async (req, res) => {
+    const category = req.query.category;
+    const limit = parseInt(String(req.query.limit)) || 15;
+    const { getCrossProjectKB } = await Promise.resolve().then(() => __importStar(require('./memory/crossProjectKB')));
+    const kb = getCrossProjectKB();
+    const patterns = kb.getMostUsedPatterns(undefined, limit);
+    res.json({
+        patterns: patterns
+            .filter(p => !category || p.category === category)
+            .map(p => ({
+            name: p.name,
+            category: p.category,
+            description: p.description,
+            frequency: p.frequency,
+            confidence: p.confidence,
+            code: p.code,
+        })),
+    });
+}));
+/**
+ * GET /ai/learn - Get learning stats
+ */
+app.get('/ai/learn', asyncHandler(async (req, res) => {
+    const { getSelfLearning } = await Promise.resolve().then(() => __importStar(require('./reasoning/selfLearning')));
+    const learning = getSelfLearning();
+    const stats = learning.getStats();
+    const copilotStats = learning.getCopilotAcceptanceRate();
+    const stabilityScore = learning.getCommitStabilityScore();
+    res.json({
+        totalFeedbacks: stats.totalFeedbacks,
+        acceptanceRate: stats.acceptanceRate,
+        avgReward: stats.avgReward,
+        learningVelocity: stats.learningVelocity,
+        copilotAcceptance: copilotStats.overall,
+        commitStability: stabilityScore,
+        topPatterns: stats.topPatterns.slice(0, 15),
+    });
+}));
+/**
+ * GET /ai/hotspots - Find code hotspots
+ */
+app.get('/ai/hotspots', asyncHandler(async (req, res) => {
+    const limit = parseInt(String(req.query.limit)) || 15;
+    const { getBugPredictor } = await Promise.resolve().then(() => __importStar(require('./output/bugPredictor')));
+    const predictor = getBugPredictor();
+    const symbols = indexManager.getAllSymbols();
+    const files = [...new Set(symbols.map(s => s.file))];
+    const hotspots = predictor.findHotspots(files, limit);
+    res.json({
+        hotspots,
+    });
+}));
 /**
  * POST /copilot - Copilot-friendly endpoint
  */
@@ -382,6 +545,14 @@ AI Endpoints (v4):
   POST /ai/ask         - Semantic code search
   GET  /ai/impact/:sym - Change impact analysis
   POST /ai/build       - Build AI indexes
+
+AI Endpoints (v4.1):
+  POST /ai/bugs        - Predict potential bugs
+  POST /ai/context     - Get Copilot context
+  POST /ai/evaluate    - Evaluate suggestions
+  GET  /ai/patterns    - Cross-project patterns
+  GET  /ai/learn       - Learning statistics
+  GET  /ai/hotspots    - Code hotspots
 
 Supported: JS, TS, Python, Go, Rust, Java, C#, PHP, Ruby, Swift...
 `);

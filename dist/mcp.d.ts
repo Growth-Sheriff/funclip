@@ -140,6 +140,109 @@ declare const TOOLS: {
             properties: {};
         };
     };
+    predict_bugs: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                symbol: {
+                    type: string;
+                    description: string;
+                };
+                file: {
+                    type: string;
+                    description: string;
+                };
+            };
+        };
+    };
+    get_copilot_context: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                file: {
+                    type: string;
+                    description: string;
+                };
+                line: {
+                    type: string;
+                    description: string;
+                };
+                prefix: {
+                    type: string;
+                    description: string;
+                };
+                suffix: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    evaluate_suggestion: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                suggestion: {
+                    type: string;
+                    description: string;
+                };
+                file: {
+                    type: string;
+                    description: string;
+                };
+                prefix: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    get_patterns: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                category: {
+                    type: string;
+                    description: string;
+                };
+                limit: {
+                    type: string;
+                    description: string;
+                };
+            };
+        };
+    };
+    get_learning_stats: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {};
+        };
+    };
+    find_hotspots: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                limit: {
+                    type: string;
+                    description: string;
+                };
+            };
+        };
+    };
 };
 declare function executeTool(name: string, args: any): Promise<any>;
 declare function createMCPServer(port: number): http.Server<typeof http.IncomingMessage, typeof http.ServerResponse>;

@@ -188,6 +188,110 @@ const TOOLS = {
             properties: {},
         },
     },
+    // ============ NEW AI TOOLS (v4.1) ============
+    predict_bugs: {
+        name: 'predict_bugs',
+        description: 'Predict potential bugs in a symbol or file. Returns risk scores, bug types, and suggestions for fixes.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                symbol: {
+                    type: 'string',
+                    description: 'Name of the symbol to analyze for potential bugs',
+                },
+                file: {
+                    type: 'string',
+                    description: 'File path to analyze for bugs (alternative to symbol)',
+                },
+            },
+        },
+    },
+    get_copilot_context: {
+        name: 'get_copilot_context',
+        description: 'Get enriched context for Copilot suggestions. Returns related symbols, patterns, warnings, and suggestions to improve code completion quality.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                file: {
+                    type: 'string',
+                    description: 'Current file path',
+                },
+                line: {
+                    type: 'number',
+                    description: 'Current line number',
+                },
+                prefix: {
+                    type: 'string',
+                    description: 'Code before cursor',
+                },
+                suffix: {
+                    type: 'string',
+                    description: 'Code after cursor',
+                },
+            },
+            required: ['file'],
+        },
+    },
+    evaluate_suggestion: {
+        name: 'evaluate_suggestion',
+        description: 'Evaluate a Copilot suggestion for risks, quality, and provide alternatives. Use before accepting suggestions.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                suggestion: {
+                    type: 'string',
+                    description: 'The code suggestion to evaluate',
+                },
+                file: {
+                    type: 'string',
+                    description: 'Current file path for context',
+                },
+                prefix: {
+                    type: 'string',
+                    description: 'Code before the suggestion',
+                },
+            },
+            required: ['suggestion', 'file'],
+        },
+    },
+    get_patterns: {
+        name: 'get_patterns',
+        description: 'Get cross-project patterns and best practices. Useful for learning common patterns and avoiding anti-patterns.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                category: {
+                    type: 'string',
+                    description: 'Filter by category (typescript, vue, react, async, etc.)',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Maximum patterns to return (default: 10)',
+                },
+            },
+        },
+    },
+    get_learning_stats: {
+        name: 'get_learning_stats',
+        description: 'Get self-learning statistics including acceptance rates, learned patterns, and preferences.',
+        inputSchema: {
+            type: 'object',
+            properties: {},
+        },
+    },
+    find_hotspots: {
+        name: 'find_hotspots',
+        description: 'Find code hotspots - files that change frequently and have high bug risk. Useful for identifying refactoring candidates.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                limit: {
+                    type: 'number',
+                    description: 'Maximum hotspots to return (default: 10)',
+                },
+            },
+        },
+    },
 };
 exports.TOOLS = TOOLS;
 // Tool execution
@@ -349,6 +453,130 @@ async function executeTool(name, args) {
                 nodeCount: ready.nodeCount,
             };
         }
+        // ============ NEW AI TOOLS (v4.1) ============
+        case 'predict_bugs': {
+            const { getBugPredictor } = await Promise.resolve().then(() => __importStar(require('./output/bugPredictor')));
+            const predictor = getBugPredictor();
+            if (args.symbol) {
+                const defs = indexManager.getAllDefinitions(args.symbol);
+                if (defs.length === 0) {
+                    return { error: `Symbol not found: ${args.symbol}` };
+                }
+                const predictions = predictor.predictBugs(defs[0]);
+                return {
+                    symbol: args.symbol,
+                    predictions: predictions.slice(0, 10).map(p => ({
+                        type: p.type,
+                        risk: p.risk,
+                        score: p.score,
+                        reason: p.reason,
+                        suggestion: p.suggestion,
+                    })),
+                };
+            }
+            if (args.file) {
+                const symbols = indexManager.getSymbolsInFile(args.file);
+                const allPredictions = [];
+                for (const sym of symbols.slice(0, 20)) {
+                    const preds = predictor.predictBugs(sym);
+                    allPredictions.push(...preds);
+                }
+                return {
+                    file: args.file,
+                    predictions: allPredictions.slice(0, 15).map(p => ({
+                        symbol: p.symbol,
+                        type: p.type,
+                        risk: p.risk,
+                        score: p.score,
+                        reason: p.reason,
+                        suggestion: p.suggestion,
+                    })),
+                };
+            }
+            return { error: 'Either symbol or file is required' };
+        }
+        case 'get_copilot_context': {
+            const { getCopilotGuide } = await Promise.resolve().then(() => __importStar(require('./output/copilotGuide')));
+            const guide = getCopilotGuide();
+            const context = guide.prepareContext(args.file);
+            return {
+                relatedSymbols: context.relatedSymbols.slice(0, 10).map(s => ({
+                    name: s.name,
+                    kind: s.kind,
+                    dependencies: s.dependencies.length,
+                })),
+                patterns: context.patterns.slice(0, 5).map(p => ({
+                    name: p.name,
+                    description: p.description,
+                    frequency: p.frequency,
+                })),
+                warnings: context.warnings,
+            };
+        }
+        case 'evaluate_suggestion': {
+            const { getCopilotGuide } = await Promise.resolve().then(() => __importStar(require('./output/copilotGuide')));
+            const guide = getCopilotGuide();
+            const context = guide.prepareContext(args.file);
+            const evaluation = guide.evaluateSuggestion(args.suggestion, context);
+            return {
+                score: evaluation.score,
+                accepted: evaluation.accepted,
+                reasons: evaluation.reasons,
+                warnings: evaluation.warnings,
+                alternatives: evaluation.alternatives.slice(0, 3),
+            };
+        }
+        case 'get_patterns': {
+            const { getCrossProjectKB } = await Promise.resolve().then(() => __importStar(require('./memory/crossProjectKB')));
+            const kb = getCrossProjectKB();
+            const patterns = kb.getMostUsedPatterns(undefined, args.limit || 10);
+            return {
+                patterns: patterns
+                    .filter(p => !args.category || p.category === args.category)
+                    .map(p => ({
+                    name: p.name,
+                    category: p.category,
+                    description: p.description,
+                    frequency: p.frequency,
+                    confidence: p.confidence,
+                    code: p.code.slice(0, 200),
+                })),
+            };
+        }
+        case 'get_learning_stats': {
+            const { getSelfLearning } = await Promise.resolve().then(() => __importStar(require('./reasoning/selfLearning')));
+            const learning = getSelfLearning();
+            const stats = learning.getStats();
+            const copilotStats = learning.getCopilotAcceptanceRate();
+            return {
+                totalFeedbacks: stats.totalFeedbacks,
+                acceptanceRate: stats.acceptanceRate,
+                avgReward: stats.avgReward,
+                learningVelocity: stats.learningVelocity,
+                copilotAcceptance: copilotStats.overall,
+                topPatterns: stats.topPatterns.slice(0, 10).map(p => ({
+                    pattern: p.pattern,
+                    weight: p.weight,
+                    confidence: p.confidence,
+                })),
+            };
+        }
+        case 'find_hotspots': {
+            const { getBugPredictor } = await Promise.resolve().then(() => __importStar(require('./output/bugPredictor')));
+            const predictor = getBugPredictor();
+            const symbols = indexManager.getAllSymbols();
+            const files = [...new Set(symbols.map(s => s.file))];
+            const hotspots = predictor.findHotspots(files, args.limit || 10);
+            return {
+                hotspots: hotspots.map(h => ({
+                    file: h.file,
+                    changeFrequency: h.changeFrequency,
+                    bugFrequency: h.bugFrequency,
+                    complexity: h.complexity,
+                    riskScore: h.riskScore,
+                })),
+            };
+        }
         default:
             return { error: `Unknown tool: ${name}` };
     }
@@ -457,6 +685,14 @@ AI Tools (v4):
   • analyze_impact      - Change impact analysis
   • build_ai_index      - Build AI indexes
   • get_ai_status       - Check AI status
+
+AI Tools (v4.1):
+  • predict_bugs        - Predict potential bugs
+  • get_copilot_context - Get enriched context for Copilot
+  • evaluate_suggestion - Evaluate code suggestions
+  • get_patterns        - Cross-project patterns
+  • get_learning_stats  - Self-learning statistics
+  • find_hotspots       - Find code hotspots
 
 MCP Endpoint: http://localhost:${port}
 
