@@ -114,5 +114,5 @@ export declare class KnowledgeGraph {
      */
     load(): void;
 }
-export declare function getKnowledgeGraph(persistPath?: string): KnowledgeGraph;
+export declare function getKnowledgeGraph(pathOrProjectPath?: string): KnowledgeGraph;
 export default KnowledgeGraph;

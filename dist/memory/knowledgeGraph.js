@@ -91,6 +91,9 @@ class KnowledgeGraph {
      */
     findNodes(query) {
         const results = [];
+        // Normalize file path for cross-platform comparison
+        const normalizeFilePath = (p) => p?.replace(/\\/g, '/').toLowerCase();
+        const queryFileNormalized = normalizeFilePath(query.file);
         for (const node of this.nodes.values()) {
             let match = true;
             if (query.name && !node.name.toLowerCase().includes(query.name.toLowerCase())) {
@@ -99,7 +102,7 @@ class KnowledgeGraph {
             if (query.type && node.type !== query.type) {
                 match = false;
             }
-            if (query.file && node.file !== query.file) {
+            if (queryFileNormalized && normalizeFilePath(node.file) !== queryFileNormalized) {
                 match = false;
             }
             if (match) {
@@ -370,8 +373,27 @@ class KnowledgeGraph {
 exports.KnowledgeGraph = KnowledgeGraph;
 // Singleton
 let graphInstance = null;
-function getKnowledgeGraph(persistPath) {
+function getKnowledgeGraph(pathOrProjectPath) {
     if (!graphInstance) {
+        let persistPath;
+        if (pathOrProjectPath) {
+            // Check if it's already a graph.json path
+            if (pathOrProjectPath.endsWith('graph.json')) {
+                persistPath = pathOrProjectPath;
+            }
+            else if (pathOrProjectPath.endsWith('.funclib')) {
+                // It's the .funclib directory
+                persistPath = path.join(pathOrProjectPath, 'graph.json');
+            }
+            else {
+                // It's a project path
+                persistPath = path.join(pathOrProjectPath, '.funclib', 'graph.json');
+            }
+        }
+        else {
+            // Default: use cwd
+            persistPath = path.join(process.cwd(), '.funclib', 'graph.json');
+        }
         graphInstance = new KnowledgeGraph(persistPath);
     }
     return graphInstance;

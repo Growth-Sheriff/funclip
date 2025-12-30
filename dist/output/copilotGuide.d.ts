@@ -51,7 +51,7 @@ export interface SuggestionEvaluation {
 export declare class CopilotGuide {
     private projectPath;
     constructor(projectPath?: string);
-    prepareContext(symbolName?: string): CopilotContext;
+    prepareContext(symbolOrFile?: string): CopilotContext;
     evaluateSuggestion(suggestion: string, context: CopilotContext): SuggestionEvaluation;
     suggestAlternatives(suggestion: string, context: CopilotContext): string[];
     warnIfRisky(code: string): Warning[];

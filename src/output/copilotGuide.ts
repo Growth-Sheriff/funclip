@@ -66,42 +66,78 @@ export class CopilotGuide {
     this.projectPath = projectPath || process.cwd();
   }
 
-  prepareContext(symbolName?: string): CopilotContext {
+  prepareContext(symbolOrFile?: string): CopilotContext {
     const relatedSymbols: SymbolContext[] = [];
     const warnings: Warning[] = [];
     const patterns: PatternContext[] = [];
     let currentSymbol: SymbolContext | undefined;
 
     // Get related symbols
-    if (symbolName) {
+    if (symbolOrFile) {
       try {
         const graph = getKnowledgeGraph(this.projectPath);
-        const node = graph.getNode(symbolName);
         
-        if (node) {
-          const outgoing = graph.getOutgoing(symbolName, 'USES');
-          const incoming = graph.getIncoming(symbolName, 'USES');
+        // Check if it's a file path
+        const isFilePath = symbolOrFile.includes('/') || symbolOrFile.includes('\\') || symbolOrFile.includes('.');
+        
+        if (isFilePath) {
+          // Find symbols in this file
+          const allNodes = graph.findNodes({ file: symbolOrFile });
           
-          currentSymbol = {
-            name: node.name,
-            kind: node.type || 'symbol',
-            file: node.file || '',
-            dependencies: outgoing.map(o => o.target.name),
-            dependents: incoming.map(i => i.source.name),
-          };
+          if (allNodes.length > 0) {
+            // Use first symbol as current
+            const firstNode = allNodes[0];
+            const outgoing = graph.getOutgoing(firstNode.id, 'USES');
+            const incoming = graph.getIncoming(firstNode.id, 'USES');
+            
+            currentSymbol = {
+              name: firstNode.name,
+              kind: firstNode.type || 'symbol',
+              file: firstNode.file || '',
+              dependencies: outgoing.map(o => o.target.name),
+              dependents: incoming.map(i => i.source.name),
+            };
+            
+            // Add other symbols in file as related
+            for (const node of allNodes.slice(1, 15)) {
+              relatedSymbols.push({
+                name: node.name,
+                kind: node.type || 'symbol',
+                file: node.file || '',
+                dependencies: [],
+                dependents: [],
+              });
+            }
+          }
+        } else {
+          // It's a symbol name
+          const node = graph.getNode(symbolOrFile);
+        
+          if (node) {
+            const outgoing = graph.getOutgoing(symbolOrFile, 'USES');
+            const incoming = graph.getIncoming(symbolOrFile, 'USES');
+          
+            currentSymbol = {
+              name: node.name,
+              kind: node.type || 'symbol',
+              file: node.file || '',
+              dependencies: outgoing.map(o => o.target.name),
+              dependents: incoming.map(i => i.source.name),
+            };
 
-          // Add dependencies as related symbols
-          for (const dep of outgoing.slice(0, 10)) {
-            relatedSymbols.push({
-              name: dep.target.name,
-              kind: dep.target.type || 'symbol',
-              file: dep.target.file || '',
-              dependencies: [],
-              dependents: [],
-            });
+            // Add dependencies as related symbols
+            for (const dep of outgoing.slice(0, 10)) {
+              relatedSymbols.push({
+                name: dep.target.name,
+                kind: dep.target.type || 'symbol',
+                file: dep.target.file || '',
+                dependencies: [],
+                dependents: [],
+              });
+            }
           }
         }
-      } catch {
+      } catch (e) {
         // Knowledge graph not available
       }
     }
