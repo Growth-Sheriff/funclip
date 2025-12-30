@@ -387,10 +387,19 @@ export class KnowledgeGraph {
    * Disk'ten yükle
    */
   load(): void {
-    if (!this.persistPath || !fs.existsSync(this.persistPath)) return;
+    if (!this.persistPath) return;
+    
+    // Eğer dizin ise, dosya yolunu oluştur
+    let filePath = this.persistPath;
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(filePath, 'knowledge-graph.json');
+      this.persistPath = filePath;
+    }
+    
+    if (!fs.existsSync(filePath)) return;
 
     try {
-      const data = JSON.parse(fs.readFileSync(this.persistPath, 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       
       this.nodes = new Map(data.nodes);
       this.edges = new Map(data.edges);
