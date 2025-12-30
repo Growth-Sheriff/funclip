@@ -479,7 +479,7 @@ app.get('/ai/hotspots', asyncHandler(async (req, res) => {
 app.get('/ai/llm-status', asyncHandler(async (req, res) => {
     const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
     const { getMultiModelEnsemble } = await Promise.resolve().then(() => __importStar(require('./reasoning/multiModel')));
-    const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+    const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
     const ollamaOk = await ollamaClient.checkOllama();
     const ensemble = getMultiModelEnsemble();
     res.json({
@@ -506,13 +506,13 @@ app.post('/ai/multi-ask', asyncHandler(async (req, res) => {
     const ensemble = getMultiModelEnsemble();
     // Auto-add models if none registered
     if (ensemble.getModels().length === 0) {
-        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
         const ollamaOk = await ollamaClient.checkOllama();
         if (ollamaOk) {
             ensemble.addModel({
                 name: 'ollama-codellama',
                 provider: 'ollama',
-                model: 'codellama:7b',
+                model: 'llama3.2',
                 baseUrl: 'http://localhost:11434',
                 priority: 1,
                 specialties: ['code', 'debugging'],
@@ -555,7 +555,7 @@ app.post('/ai/mesh', asyncHandler(async (req, res) => {
     const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
     const outputs = [];
     // Query Ollama
-    const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+    const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
     const ollamaOk = await ollamaClient.checkOllama();
     if (ollamaOk) {
         const start = Date.now();

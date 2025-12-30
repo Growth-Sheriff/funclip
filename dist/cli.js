@@ -486,7 +486,7 @@ async function main() {
                 log('⚠️ LLM bağlantısı yok.', 'yellow');
                 log('   Ollama kurun: winget install Ollama.Ollama', 'dim');
                 log('   Başlatın: ollama serve', 'dim');
-                log('   Model: ollama pull codellama:7b\n', 'dim');
+                log('   Model: ollama pull llama3.2\n', 'dim');
                 break;
             }
             const result = await queryEngine.predictBugs(filePath);
@@ -824,7 +824,7 @@ async function main() {
             const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
             const { getMultiModelEnsemble } = await Promise.resolve().then(() => __importStar(require('./reasoning/multiModel')));
             // Check Ollama
-            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
             const ollamaOk = await ollamaClient.checkOllama();
             log(`   Ollama (localhost:11434): ${ollamaOk ? '✅ Aktif' : '❌ Kapalı'}`, 'reset');
             // Check Groq
@@ -860,13 +860,13 @@ async function main() {
             const ensemble = getMultiModelEnsemble();
             // If no models, add default ones
             if (ensemble.getModels().length === 0) {
-                const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+                const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
                 const ollamaOk = await ollamaClient.checkOllama();
                 if (ollamaOk) {
                     ensemble.addModel({
                         name: 'ollama-codellama',
                         provider: 'ollama',
-                        model: 'codellama:7b',
+                        model: 'llama3.2',
                         baseUrl: 'http://localhost:11434',
                         priority: 1,
                         specialties: ['code', 'debugging'],
@@ -913,7 +913,7 @@ async function main() {
             const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
             // Get responses from available models
             const outputs = [];
-            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
             const ollamaOk = await ollamaClient.checkOllama();
             if (ollamaOk) {
                 log('   🔄 Ollama sorgulanıyor...', 'dim');

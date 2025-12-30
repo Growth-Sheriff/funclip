@@ -41,7 +41,7 @@ export interface ReasoningResult {
 const DEFAULT_CONFIGS: Record<string, LLMConfig> = {
   ollama: {
     provider: 'ollama',
-    model: 'codellama:7b',
+    model: 'llama3.2',
     baseUrl: 'http://localhost:11434',
     temperature: 0.3,
     maxTokens: 2000,

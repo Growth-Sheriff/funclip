@@ -44,7 +44,7 @@ const https = __importStar(require("https"));
 const DEFAULT_CONFIGS = {
     ollama: {
         provider: 'ollama',
-        model: 'codellama:7b',
+        model: 'llama3.2',
         baseUrl: 'http://localhost:11434',
         temperature: 0.3,
         maxTokens: 2000,

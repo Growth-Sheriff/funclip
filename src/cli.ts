@@ -524,7 +524,7 @@ async function main() {
         log('⚠️ LLM bağlantısı yok.', 'yellow');
         log('   Ollama kurun: winget install Ollama.Ollama', 'dim');
         log('   Başlatın: ollama serve', 'dim');
-        log('   Model: ollama pull codellama:7b\n', 'dim');
+        log('   Model: ollama pull llama3.2\n', 'dim');
         break;
       }
 
@@ -948,7 +948,7 @@ async function main() {
       const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
 
       // Check Ollama
-      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
       const ollamaOk = await ollamaClient.checkOllama();
       log(`   Ollama (localhost:11434): ${ollamaOk ? '✅ Aktif' : '❌ Kapalı'}`, 'reset');
 
@@ -992,14 +992,14 @@ async function main() {
       
       // If no models, add default ones
       if (ensemble.getModels().length === 0) {
-        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
         const ollamaOk = await ollamaClient.checkOllama();
         
         if (ollamaOk) {
           ensemble.addModel({
             name: 'ollama-codellama',
             provider: 'ollama',
-            model: 'codellama:7b',
+            model: 'llama3.2',
             baseUrl: 'http://localhost:11434',
             priority: 1,
             specialties: ['code', 'debugging'],
@@ -1057,7 +1057,7 @@ async function main() {
       // Get responses from available models
       const outputs: any[] = [];
       
-      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
       const ollamaOk = await ollamaClient.checkOllama();
 
       if (ollamaOk) {

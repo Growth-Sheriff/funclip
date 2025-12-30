@@ -656,14 +656,14 @@ async function executeTool(name: string, args: any): Promise<any> {
 
       // Auto-add models if none registered
       if (ensemble.getModels().length === 0) {
-        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
         const ollamaOk = await ollamaClient.checkOllama();
 
         if (ollamaOk) {
           ensemble.addModel({
             name: 'ollama-codellama',
             provider: 'ollama',
-            model: 'codellama:7b',
+            model: 'llama3.2',
             baseUrl: 'http://localhost:11434',
             priority: 1,
             specialties: ['code', 'debugging'],
@@ -706,7 +706,7 @@ async function executeTool(name: string, args: any): Promise<any> {
       const outputs: any[] = [];
 
       // Query Ollama
-      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
       const ollamaOk = await ollamaClient.checkOllama();
 
       if (ollamaOk) {
@@ -775,7 +775,7 @@ async function executeTool(name: string, args: any): Promise<any> {
       const { LLMClient } = await import('./reasoning/llmClient');
       const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
 
-      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'llama3.2', baseUrl: 'http://localhost:11434' });
       const ollamaOk = await ollamaClient.checkOllama();
 
       const ensemble = getMultiModelEnsemble();
