@@ -1,11 +1,12 @@
 /**
- * FuncLib v2 - REST API Server
+ * FuncLib v4 - REST API Server
  */
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import * as path from 'path';
 import IndexManager from './indexManager';
+import { QueryEngine } from './output/queryEngine';
 import { SearchOptions, SymbolKind, Language } from './types';
 
 const app = express();
@@ -264,6 +265,96 @@ app.get('/graph', (req: Request, res: Response) => {
   res.json(graph);
 });
 
+// ========================
+// AI Endpoints (v4)
+// ========================
+
+/**
+ * GET /ai/status - AI status check
+ */
+app.get('/ai/status', asyncHandler(async (req: Request, res: Response) => {
+  const queryEngine = new QueryEngine(PROJECT_PATH);
+  const ready = await queryEngine.checkReady();
+
+  res.json({
+    astIndex: ready.indexReady,
+    vectorStore: ready.vectorReady,
+    knowledgeGraph: ready.graphReady,
+    llm: ready.llmReady,
+    symbolCount: ready.symbolCount,
+    vectorCount: ready.vectorCount,
+    nodeCount: ready.nodeCount,
+  });
+}));
+
+/**
+ * POST /ai/ask - Semantic code search
+ */
+app.post('/ai/ask', asyncHandler(async (req: Request, res: Response) => {
+  const { query, maxResults = 10, useLLM = true } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ error: 'query is required' });
+  }
+
+  const queryEngine = new QueryEngine(PROJECT_PATH);
+  const result = await queryEngine.ask(query, {
+    useLLM,
+    maxResults,
+    includeCode: true,
+  });
+
+  res.json({
+    query,
+    answer: result.answer,
+    confidence: result.confidence,
+    results: result.relevantCode,
+    suggestions: result.suggestions,
+  });
+}));
+
+/**
+ * GET /ai/impact/:symbol - Change impact analysis
+ */
+app.get('/ai/impact/:symbol', asyncHandler(async (req: Request, res: Response) => {
+  const symbol = req.params.symbol;
+  
+  const queryEngine = new QueryEngine(PROJECT_PATH);
+  const result = await queryEngine.analyzeChange(symbol);
+
+  res.json({
+    symbol,
+    answer: result.answer,
+    confidence: result.confidence,
+    affectedFiles: result.relevantCode.length,
+    files: result.relevantCode,
+    suggestions: result.suggestions,
+    impact: result.impact,
+  });
+}));
+
+/**
+ * POST /ai/build - Build AI index
+ */
+app.post('/ai/build', asyncHandler(async (req: Request, res: Response) => {
+  const queryEngine = new QueryEngine(PROJECT_PATH);
+  const ready = await queryEngine.checkReady();
+
+  if (!ready.indexReady) {
+    return res.status(400).json({ error: 'AST index not found. Run POST /index first.' });
+  }
+
+  queryEngine.buildKnowledgeGraph();
+  await queryEngine.buildVectorIndex();
+
+  const newStatus = await queryEngine.checkReady();
+  res.json({
+    success: true,
+    vectorCount: newStatus.vectorCount,
+    nodeCount: newStatus.nodeCount,
+  });
+}));
+
 /**
  * POST /copilot - Copilot-friendly endpoint
  */
@@ -340,18 +431,24 @@ export function startServer() {
   app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║              FuncLib v2 - Universal Symbol Index              ║
+║              FuncLib v4 - Universal Symbol Index              ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Port: ${String(PORT).padEnd(53)}║
 ║  Project: ${PROJECT_PATH.substring(0, 49).padEnd(49)}║
 ╚═══════════════════════════════════════════════════════════════╝
 
-Endpoints:
+Core Endpoints:
   POST /index          - Index project
   GET  /search?q=...   - Search symbols
   GET  /symbol/:name   - Symbol details
   GET  /refs/:name     - Find all references
   POST /copilot        - Copilot endpoint
+
+AI Endpoints (v4):
+  GET  /ai/status      - AI system status
+  POST /ai/ask         - Semantic code search
+  GET  /ai/impact/:sym - Change impact analysis
+  POST /ai/build       - Build AI indexes
 
 Supported: JS, TS, Python, Go, Rust, Java, C#, PHP, Ruby, Swift...
 `);

@@ -1,5 +1,5 @@
 /**
- * FuncLib v2 - MCP (Model Context Protocol) Server
+ * FuncLib v4 - MCP (Model Context Protocol) Server
  *
  * Bu sunucu Copilot, Claude ve diğer AI araçlarının
  * FuncLib'i doğrudan tool olarak kullanmasını sağlar.
@@ -85,6 +85,54 @@ declare const TOOLS: {
         };
     };
     get_call_graph: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {};
+        };
+    };
+    semantic_search: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                query: {
+                    type: string;
+                    description: string;
+                };
+                maxResults: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    analyze_impact: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                symbol: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    build_ai_index: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {};
+        };
+    };
+    get_ai_status: {
         name: string;
         description: string;
         inputSchema: {

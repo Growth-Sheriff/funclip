@@ -48,12 +48,14 @@ ${c.cyan}Core Commands:${c.reset}
   ${c.green}file${c.reset} <path>        Show symbols in file
   ${c.green}stats${c.reset}              Show index statistics
   ${c.green}graph${c.reset}              Show call graph
+  ${c.green}watch${c.reset}              Watch for changes and auto-reindex
 
 ${c.cyan}AI Commands (v4):${c.reset}
   ${c.magenta}ask${c.reset} <question>    Ask anything about the code (semantic + LLM)
   ${c.magenta}impact${c.reset} <symbol>   Analyze change impact
   ${c.magenta}bugs${c.reset} [file]       Predict potential bugs
   ${c.magenta}build-ai${c.reset}          Build vector index & knowledge graph
+  ${c.magenta}status${c.reset}            Check AI system status
 
 ${c.cyan}Server Commands:${c.reset}
   ${c.green}serve${c.reset}              Start REST API server (port 3456)
@@ -65,6 +67,7 @@ ${c.cyan}Examples:${c.reset}
   funclib refs fetchData
   funclib symbol UserService
   funclib list function
+  funclib watch
   funclib ask "sepete ürün ekleme nerede?"
   funclib impact useEditorStore
   funclib bugs src/services/
@@ -353,6 +356,73 @@ async function main() {
       log('\n🤖 Starting MCP server...', 'cyan');
       const mcpPort = parseInt(process.env.MCP_PORT || '3457');
       createMCPServer(mcpPort);
+      break;
+    }
+
+    case 'watch': {
+      log('\n👁️ Watch mode başlatılıyor...\n', 'cyan');
+      
+      const chokidar = await import('chokidar').catch(() => null);
+      if (!chokidar) {
+        log('❌ chokidar paketi gerekli: npm install chokidar', 'red');
+        break;
+      }
+
+      const DEBOUNCE_MS = 500;
+      let timeout: NodeJS.Timeout | null = null;
+      const pendingFiles = new Set<string>();
+
+      const watcher = chokidar.default.watch([
+        '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx',
+        '**/*.vue', '**/*.py', '**/*.go', '**/*.rs',
+      ], {
+        cwd: PROJECT_PATH,
+        ignored: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/.funclib/**'],
+        persistent: true,
+        ignoreInitial: true,
+      });
+
+      log(`📂 Proje: ${PROJECT_PATH}`, 'dim');
+      log('📡 Değişiklikler izleniyor... (Ctrl+C ile çık)\n', 'green');
+
+      const processChanges = async () => {
+        if (pendingFiles.size === 0) return;
+        
+        const files = Array.from(pendingFiles);
+        pendingFiles.clear();
+        
+        log(`\n🔄 ${files.length} dosya değişti, yeniden indeksleniyor...`, 'yellow');
+        
+        for (const file of files) {
+          try {
+            await indexManager.indexFile(file);
+            log(`   ✅ ${file}`, 'green');
+          } catch (e) {
+            log(`   ❌ ${file}`, 'red');
+          }
+        }
+        
+        log(`✅ Incremental index tamamlandı (${files.length} dosya)\n`, 'green');
+      };
+
+      watcher.on('change', (filePath: string) => {
+        pendingFiles.add(filePath);
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(processChanges, DEBOUNCE_MS);
+      });
+
+      watcher.on('add', (filePath: string) => {
+        pendingFiles.add(filePath);
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(processChanges, DEBOUNCE_MS);
+      });
+
+      watcher.on('unlink', (filePath: string) => {
+        log(`🗑️ Dosya silindi: ${filePath}`, 'dim');
+      });
+
+      // Keep running
+      await new Promise(() => {});
       break;
     }
 

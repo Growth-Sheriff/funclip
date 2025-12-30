@@ -1,6 +1,6 @@
 "use strict";
 /**
- * FuncLib v2 - MCP (Model Context Protocol) Server
+ * FuncLib v4 - MCP (Model Context Protocol) Server
  *
  * Bu sunucu Copilot, Claude ve diğer AI araçlarının
  * FuncLib'i doğrudan tool olarak kullanmasını sağlar.
@@ -47,6 +47,7 @@ exports.createMCPServer = createMCPServer;
 exports.executeTool = executeTool;
 const http = __importStar(require("http"));
 const indexManager_1 = __importDefault(require("./indexManager"));
+const queryEngine_1 = require("./output/queryEngine");
 const PROJECT_PATH = process.env.FUNCLIB_PROJECT || process.cwd();
 const indexManager = new indexManager_1.default(PROJECT_PATH);
 indexManager.load();
@@ -133,6 +134,55 @@ const TOOLS = {
     get_call_graph: {
         name: 'get_call_graph',
         description: 'Get the call graph showing which functions call which other functions.',
+        inputSchema: {
+            type: 'object',
+            properties: {},
+        },
+    },
+    // ============ AI TOOLS (v4) ============
+    semantic_search: {
+        name: 'semantic_search',
+        description: 'Search code using natural language. Uses AI embeddings for semantic understanding. Good for questions like "where is user authentication handled?" or "find functions related to payment".',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'Natural language query to search for',
+                },
+                maxResults: {
+                    type: 'number',
+                    description: 'Maximum results to return (default: 10)',
+                },
+            },
+            required: ['query'],
+        },
+    },
+    analyze_impact: {
+        name: 'analyze_impact',
+        description: 'Analyze the impact of changing a function or class. Shows all files that would be affected and risk level. CRITICAL: Use this before making breaking changes.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                symbol: {
+                    type: 'string',
+                    description: 'Name of the function, class, or symbol to analyze',
+                },
+            },
+            required: ['symbol'],
+        },
+    },
+    build_ai_index: {
+        name: 'build_ai_index',
+        description: 'Build the AI index (vector embeddings and knowledge graph). Run this after major code changes to update semantic search.',
+        inputSchema: {
+            type: 'object',
+            properties: {},
+        },
+    },
+    get_ai_status: {
+        name: 'get_ai_status',
+        description: 'Check the status of AI features (vector store, knowledge graph, LLM connectivity).',
         inputSchema: {
             type: 'object',
             properties: {},
@@ -232,6 +282,73 @@ async function executeTool(name, args) {
                 })),
             };
         }
+        // ============ AI TOOLS (v4) ============
+        case 'semantic_search': {
+            const queryEngine = new queryEngine_1.QueryEngine(PROJECT_PATH);
+            const result = await queryEngine.ask(args.query, {
+                useLLM: false,
+                maxResults: args.maxResults || 10,
+                includeCode: true,
+            });
+            return {
+                query: args.query,
+                answer: result.answer,
+                confidence: result.confidence,
+                results: result.relevantCode.map(r => ({
+                    name: r.name,
+                    kind: r.kind,
+                    file: r.file,
+                    line: r.line,
+                    similarity: r.similarity,
+                })),
+                suggestions: result.suggestions,
+            };
+        }
+        case 'analyze_impact': {
+            const queryEngine = new queryEngine_1.QueryEngine(PROJECT_PATH);
+            const result = await queryEngine.analyzeChange(args.symbol);
+            return {
+                symbol: args.symbol,
+                answer: result.answer,
+                confidence: result.confidence,
+                affectedFiles: result.relevantCode.length,
+                files: result.relevantCode.map(r => ({
+                    file: r.file,
+                    line: r.line,
+                    kind: r.kind,
+                })),
+                suggestions: result.suggestions,
+                impact: result.impact,
+            };
+        }
+        case 'build_ai_index': {
+            const queryEngine = new queryEngine_1.QueryEngine(PROJECT_PATH);
+            const ready = await queryEngine.checkReady();
+            if (!ready.indexReady) {
+                return { error: 'AST index not found. Run index_project first.' };
+            }
+            queryEngine.buildKnowledgeGraph();
+            await queryEngine.buildVectorIndex();
+            const newStatus = await queryEngine.checkReady();
+            return {
+                success: true,
+                vectorCount: newStatus.vectorCount,
+                nodeCount: newStatus.nodeCount,
+            };
+        }
+        case 'get_ai_status': {
+            const queryEngine = new queryEngine_1.QueryEngine(PROJECT_PATH);
+            const ready = await queryEngine.checkReady();
+            return {
+                astIndex: ready.indexReady,
+                vectorStore: ready.vectorReady,
+                knowledgeGraph: ready.graphReady,
+                llm: ready.llmReady,
+                symbolCount: ready.symbolCount,
+                vectorCount: ready.vectorCount,
+                nodeCount: ready.nodeCount,
+            };
+        }
         default:
             return { error: `Unknown tool: ${name}` };
     }
@@ -293,7 +410,7 @@ function createMCPServer(port) {
                         },
                         serverInfo: {
                             name: 'funclib',
-                            version: '2.0.0',
+                            version: '4.0.0',
                         },
                     };
                     break;
@@ -321,19 +438,25 @@ function createMCPServer(port) {
     server.listen(port, () => {
         console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║              FuncLib v2 - MCP Server                          ║
+║              FuncLib v4 - MCP Server (AI-Powered)             ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Port: ${String(port).padEnd(53)}║
 ║  Project: ${PROJECT_PATH.substring(0, 49).padEnd(49)}║
 ╚═══════════════════════════════════════════════════════════════╝
 
-Available Tools:
+Core Tools:
   • search_symbols      - Search for symbols
   • find_references     - Find all usages of a symbol
   • get_symbol          - Get symbol details
   • list_symbols_in_file - List symbols in a file
   • index_project       - Re-index the project
   • get_call_graph      - Get function call graph
+
+AI Tools (v4):
+  • semantic_search     - Natural language code search
+  • analyze_impact      - Change impact analysis
+  • build_ai_index      - Build AI indexes
+  • get_ai_status       - Check AI status
 
 MCP Endpoint: http://localhost:${port}
 
