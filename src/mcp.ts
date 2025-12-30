@@ -271,6 +271,49 @@ const TOOLS = {
       },
     },
   },
+
+  multi_model_query: {
+    name: 'multi_model_query',
+    description: 'Query multiple LLM models (Ollama, Groq, Together) and get the best response. Uses ensemble strategy.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'The question or prompt to send to models',
+        },
+        systemPrompt: {
+          type: 'string',
+          description: 'Optional system prompt for context',
+        },
+      },
+      required: ['question'],
+    },
+  },
+
+  mesh_query: {
+    name: 'mesh_query',
+    description: 'Query multiple models and merge their responses using consensus algorithm. Finds agreements and resolves conflicts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'The question or prompt to send to models',
+        },
+      },
+      required: ['question'],
+    },
+  },
+
+  llm_status: {
+    name: 'llm_status',
+    description: 'Check the status of all LLM providers (Ollama, Groq, Together).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 };
 
 // Tool execution
@@ -604,6 +647,150 @@ async function executeTool(name: string, args: any): Promise<any> {
         })),
       };
     }
+
+    case 'multi_model_query': {
+      const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
+      const { LLMClient } = await import('./reasoning/llmClient');
+
+      const ensemble = getMultiModelEnsemble();
+
+      // Auto-add models if none registered
+      if (ensemble.getModels().length === 0) {
+        const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+        const ollamaOk = await ollamaClient.checkOllama();
+
+        if (ollamaOk) {
+          ensemble.addModel({
+            name: 'ollama-codellama',
+            provider: 'ollama',
+            model: 'codellama:7b',
+            baseUrl: 'http://localhost:11434',
+            priority: 1,
+            specialties: ['code', 'debugging'],
+          });
+        }
+
+        if (process.env.GROQ_API_KEY) {
+          ensemble.addModel({
+            name: 'groq-llama',
+            provider: 'groq',
+            model: 'llama-3.2-70b-versatile',
+            baseUrl: 'https://api.groq.com/openai/v1',
+            apiKey: process.env.GROQ_API_KEY,
+            priority: 2,
+            specialties: ['general', 'documentation'],
+          });
+        }
+      }
+
+      if (ensemble.getModels().length === 0) {
+        return { error: 'No LLM providers available. Start Ollama or set GROQ_API_KEY.' };
+      }
+
+      const result = await ensemble.query(args.question, args.systemPrompt);
+
+      return {
+        response: result.response,
+        model: result.model,
+        confidence: result.confidence,
+        alternatives: result.alternatives.length,
+        totalTime: result.metadata.totalTime,
+        tokensUsed: result.metadata.tokensUsed,
+      };
+    }
+
+    case 'mesh_query': {
+      const { getMeshEngine } = await import('./reasoning/meshEngine');
+      const { LLMClient } = await import('./reasoning/llmClient');
+
+      const outputs: any[] = [];
+
+      // Query Ollama
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaOk = await ollamaClient.checkOllama();
+
+      if (ollamaOk) {
+        const start = Date.now();
+        try {
+          const resp = await ollamaClient.chat([
+            { role: 'system', content: 'You are a helpful programming assistant.' },
+            { role: 'user', content: args.question }
+          ]);
+          outputs.push({
+            model: 'ollama-codellama',
+            response: resp.content,
+            confidence: 0.8,
+            latency: Date.now() - start,
+            tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+          });
+        } catch (e) {
+          // Ignore error
+        }
+      }
+
+      // Query Groq if available
+      if (process.env.GROQ_API_KEY) {
+        const groqClient = new LLMClient({
+          provider: 'groq',
+          model: 'llama-3.2-70b-versatile',
+          baseUrl: 'https://api.groq.com/openai/v1',
+          apiKey: process.env.GROQ_API_KEY
+        });
+        const start = Date.now();
+        try {
+          const resp = await groqClient.chat([
+            { role: 'system', content: 'You are a helpful programming assistant.' },
+            { role: 'user', content: args.question }
+          ]);
+          outputs.push({
+            model: 'groq-llama',
+            response: resp.content,
+            confidence: 0.85,
+            latency: Date.now() - start,
+            tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+          });
+        } catch (e) {
+          // Ignore error
+        }
+      }
+
+      if (outputs.length === 0) {
+        return { error: 'No LLM providers responded.' };
+      }
+
+      const meshEngine = getMeshEngine();
+      const meshed = meshEngine.meshModelOutputs(outputs);
+
+      return {
+        synthesized: meshed.synthesized,
+        confidence: meshed.confidence,
+        sources: meshed.sources,
+        agreements: meshed.agreements.length,
+        conflicts: meshed.conflicts.length,
+        reasoning: meshed.reasoning,
+      };
+    }
+
+    case 'llm_status': {
+      const { LLMClient } = await import('./reasoning/llmClient');
+      const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
+
+      const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+      const ollamaOk = await ollamaClient.checkOllama();
+
+      const ensemble = getMultiModelEnsemble();
+
+      return {
+        ollama: ollamaOk,
+        groq: !!process.env.GROQ_API_KEY,
+        together: !!process.env.TOGETHER_API_KEY,
+        registeredModels: ensemble.getModels().map(m => ({
+          name: m.name,
+          provider: m.provider,
+          model: m.model,
+        })),
+      };
+    }
     
     default:
       return { error: `Unknown tool: ${name}` };
@@ -735,6 +922,11 @@ AI Tools (v4.1):
   • get_patterns        - Cross-project patterns
   • get_learning_stats  - Self-learning statistics
   • find_hotspots       - Find code hotspots
+
+AI Tools (v4.2 - Multi-Model):
+  • multi_model_query   - Query multiple LLM models
+  • mesh_query          - Mesh consensus query
+  • llm_status          - Check LLM providers status
 
 MCP Endpoint: http://localhost:${port}
 

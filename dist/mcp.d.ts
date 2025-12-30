@@ -243,6 +243,46 @@ declare const TOOLS: {
             };
         };
     };
+    multi_model_query: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                question: {
+                    type: string;
+                    description: string;
+                };
+                systemPrompt: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    mesh_query: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {
+                question: {
+                    type: string;
+                    description: string;
+                };
+            };
+            required: string[];
+        };
+    };
+    llm_status: {
+        name: string;
+        description: string;
+        inputSchema: {
+            type: string;
+            properties: {};
+        };
+    };
 };
 declare function executeTool(name: string, args: any): Promise<any>;
 declare function createMCPServer(port: number): http.Server<typeof http.IncomingMessage, typeof http.ServerResponse>;

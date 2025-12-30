@@ -517,6 +517,171 @@ app.get('/ai/hotspots', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 /**
+ * GET /ai/llm-status - Check LLM providers status
+ */
+app.get('/ai/llm-status', asyncHandler(async (req: Request, res: Response) => {
+  const { LLMClient } = await import('./reasoning/llmClient');
+  const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
+
+  const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+  const ollamaOk = await ollamaClient.checkOllama();
+
+  const ensemble = getMultiModelEnsemble();
+
+  res.json({
+    ollama: ollamaOk,
+    groq: !!process.env.GROQ_API_KEY,
+    together: !!process.env.TOGETHER_API_KEY,
+    registeredModels: ensemble.getModels().map(m => ({
+      name: m.name,
+      provider: m.provider,
+      model: m.model,
+    })),
+  });
+}));
+
+/**
+ * POST /ai/multi-ask - Multi-model query
+ */
+app.post('/ai/multi-ask', asyncHandler(async (req: Request, res: Response) => {
+  const { question, systemPrompt } = req.body;
+
+  if (!question) {
+    return res.status(400).json({ error: 'question is required' });
+  }
+
+  const { getMultiModelEnsemble } = await import('./reasoning/multiModel');
+  const { LLMClient } = await import('./reasoning/llmClient');
+
+  const ensemble = getMultiModelEnsemble();
+
+  // Auto-add models if none registered
+  if (ensemble.getModels().length === 0) {
+    const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+    const ollamaOk = await ollamaClient.checkOllama();
+
+    if (ollamaOk) {
+      ensemble.addModel({
+        name: 'ollama-codellama',
+        provider: 'ollama',
+        model: 'codellama:7b',
+        baseUrl: 'http://localhost:11434',
+        priority: 1,
+        specialties: ['code', 'debugging'],
+      });
+    }
+
+    if (process.env.GROQ_API_KEY) {
+      ensemble.addModel({
+        name: 'groq-llama',
+        provider: 'groq',
+        model: 'llama-3.2-70b-versatile',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        apiKey: process.env.GROQ_API_KEY,
+        priority: 2,
+        specialties: ['general', 'documentation'],
+      });
+    }
+  }
+
+  if (ensemble.getModels().length === 0) {
+    return res.status(503).json({ error: 'No LLM providers available' });
+  }
+
+  const result = await ensemble.query(question, systemPrompt);
+
+  res.json({
+    response: result.response,
+    model: result.model,
+    confidence: result.confidence,
+    alternatives: result.alternatives.length,
+    totalTime: result.metadata.totalTime,
+    tokensUsed: result.metadata.tokensUsed,
+  });
+}));
+
+/**
+ * POST /ai/mesh - Mesh consensus query
+ */
+app.post('/ai/mesh', asyncHandler(async (req: Request, res: Response) => {
+  const { question } = req.body;
+
+  if (!question) {
+    return res.status(400).json({ error: 'question is required' });
+  }
+
+  const { getMeshEngine } = await import('./reasoning/meshEngine');
+  const { LLMClient } = await import('./reasoning/llmClient');
+
+  const outputs: any[] = [];
+
+  // Query Ollama
+  const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+  const ollamaOk = await ollamaClient.checkOllama();
+
+  if (ollamaOk) {
+    const start = Date.now();
+    try {
+      const resp = await ollamaClient.chat([
+        { role: 'system', content: 'You are a helpful programming assistant.' },
+        { role: 'user', content: question }
+      ]);
+      outputs.push({
+        model: 'ollama-codellama',
+        response: resp.content,
+        confidence: 0.8,
+        latency: Date.now() - start,
+        tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+      });
+    } catch (e) {
+      // Ignore error
+    }
+  }
+
+  // Query Groq if available
+  if (process.env.GROQ_API_KEY) {
+    const groqClient = new LLMClient({
+      provider: 'groq',
+      model: 'llama-3.2-70b-versatile',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      apiKey: process.env.GROQ_API_KEY
+    });
+    const start = Date.now();
+    try {
+      const resp = await groqClient.chat([
+        { role: 'system', content: 'You are a helpful programming assistant.' },
+        { role: 'user', content: question }
+      ]);
+      outputs.push({
+        model: 'groq-llama',
+        response: resp.content,
+        confidence: 0.85,
+        latency: Date.now() - start,
+        tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+      });
+    } catch (e) {
+      // Ignore error
+    }
+  }
+
+  if (outputs.length === 0) {
+    return res.status(503).json({ error: 'No LLM providers responded' });
+  }
+
+  const meshEngine = getMeshEngine();
+  const meshed = meshEngine.meshModelOutputs(outputs);
+
+  res.json({
+    synthesized: meshed.synthesized,
+    confidence: meshed.confidence,
+    sources: meshed.sources,
+    agreements: meshed.agreements.length,
+    conflicts: meshed.conflicts.length,
+    reasoning: meshed.reasoning,
+  });
+}));
+
+/**
  * POST /copilot - Copilot-friendly endpoint
  */
 app.post('/copilot', (req: Request, res: Response) => {
@@ -618,6 +783,11 @@ AI Endpoints (v4.1):
   GET  /ai/patterns    - Cross-project patterns
   GET  /ai/learn       - Learning statistics
   GET  /ai/hotspots    - Code hotspots
+
+AI Endpoints (v4.2 - Multi-Model):
+  GET  /ai/llm-status  - LLM providers status
+  POST /ai/multi-ask   - Multi-model query
+  POST /ai/mesh        - Mesh consensus query
 
 Supported: JS, TS, Python, Go, Rust, Java, C#, PHP, Ruby, Swift...
 `);

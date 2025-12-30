@@ -96,6 +96,9 @@ ${c.cyan}AI Commands (v4):${c.reset}
   ${c.magenta}guide${c.reset} <file>      Get Copilot guidance for file
   ${c.magenta}learn${c.reset}             Show learned preferences & stats
   ${c.magenta}patterns${c.reset}          Show cross-project patterns
+  ${c.magenta}multi-ask${c.reset} <q>     Multi-model ensemble query
+  ${c.magenta}mesh${c.reset} <q>          Mesh engine (consensus) query
+  ${c.magenta}llm-status${c.reset}        Check LLM providers status
 
 ${c.cyan}Server Commands:${c.reset}
   ${c.green}serve${c.reset}              Start REST API server (port 3456)
@@ -115,6 +118,8 @@ ${c.cyan}Examples:${c.reset}
   funclib guide src/utils.ts
   funclib learn
   funclib patterns
+  funclib multi-ask "bu fonksiyon ne yapıyor?"
+  funclib mesh "bu kodu nasıl optimize ederim?"
   funclib serve
   funclib mcp
 
@@ -810,6 +815,169 @@ async function main() {
             }
             else if (!ready.llmReady) {
                 log('\n   💡 `ollama serve` başlatın', 'dim');
+            }
+            console.log();
+            break;
+        }
+        case 'llm-status': {
+            log('\n🤖 LLM Provider Durumu\n', 'cyan');
+            const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
+            const { getMultiModelEnsemble } = await Promise.resolve().then(() => __importStar(require('./reasoning/multiModel')));
+            // Check Ollama
+            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+            const ollamaOk = await ollamaClient.checkOllama();
+            log(`   Ollama (localhost:11434): ${ollamaOk ? '✅ Aktif' : '❌ Kapalı'}`, 'reset');
+            // Check Groq
+            const groqKey = process.env.GROQ_API_KEY;
+            log(`   Groq API Key:            ${groqKey ? '✅ Ayarlı' : '❌ Eksik (GROQ_API_KEY)'}`, 'reset');
+            // Check Together
+            const togetherKey = process.env.TOGETHER_API_KEY;
+            log(`   Together API Key:        ${togetherKey ? '✅ Ayarlı' : '❌ Eksik (TOGETHER_API_KEY)'}`, 'reset');
+            // MultiModel config
+            const ensemble = getMultiModelEnsemble();
+            const models = ensemble.getModels();
+            if (models.length > 0) {
+                log(`\n📦 Kayıtlı Modeller: ${models.length}`, 'reset');
+                for (const m of models) {
+                    log(`   - ${m.name} (${m.provider}/${m.model})`, 'dim');
+                }
+            }
+            else {
+                log('\n   💡 Model eklemek için: ensemble.addModel({ ... })', 'dim');
+            }
+            console.log();
+            break;
+        }
+        case 'multi-ask': {
+            const question = args.slice(1).join(' ');
+            if (!question) {
+                log('❌ Soru gerekli: funclib multi-ask <soru>', 'red');
+                process.exit(1);
+            }
+            log(`\n🤖 Multi-Model Sorgu: "${question}"\n`, 'cyan');
+            const { getMultiModelEnsemble } = await Promise.resolve().then(() => __importStar(require('./reasoning/multiModel')));
+            const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
+            const ensemble = getMultiModelEnsemble();
+            // If no models, add default ones
+            if (ensemble.getModels().length === 0) {
+                const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+                const ollamaOk = await ollamaClient.checkOllama();
+                if (ollamaOk) {
+                    ensemble.addModel({
+                        name: 'ollama-codellama',
+                        provider: 'ollama',
+                        model: 'codellama:7b',
+                        baseUrl: 'http://localhost:11434',
+                        priority: 1,
+                        specialties: ['code', 'debugging'],
+                    });
+                    log('   ✅ Ollama/CodeLlama eklendi', 'dim');
+                }
+                if (process.env.GROQ_API_KEY) {
+                    ensemble.addModel({
+                        name: 'groq-llama',
+                        provider: 'groq',
+                        model: 'llama-3.2-70b-versatile',
+                        baseUrl: 'https://api.groq.com/openai/v1',
+                        apiKey: process.env.GROQ_API_KEY,
+                        priority: 2,
+                        specialties: ['general', 'documentation'],
+                    });
+                    log('   ✅ Groq/Llama eklendi', 'dim');
+                }
+                if (ensemble.getModels().length === 0) {
+                    log('❌ Hiçbir LLM provider aktif değil!', 'red');
+                    log('   💡 Ollama başlatın veya GROQ_API_KEY ayarlayın', 'dim');
+                    break;
+                }
+            }
+            const result = await ensemble.query(question, 'Sen yardımcı bir programlama asistanısın.');
+            log(`\n📝 Yanıt (${result.model}):\n`, 'green');
+            log(result.response, 'reset');
+            log(`\n📊 Güven: ${(result.confidence * 100).toFixed(0)}%`, 'dim');
+            log(`⏱️ Süre: ${result.metadata.totalTime}ms`, 'dim');
+            if (result.alternatives.length > 0) {
+                log(`\n🔄 Alternatif yanıtlar: ${result.alternatives.length}`, 'dim');
+            }
+            console.log();
+            break;
+        }
+        case 'mesh': {
+            const question = args.slice(1).join(' ');
+            if (!question) {
+                log('❌ Soru gerekli: funclib mesh <soru>', 'red');
+                process.exit(1);
+            }
+            log(`\n🔀 Mesh Engine Sorgu: "${question}"\n`, 'cyan');
+            const { getMeshEngine, MeshEngine } = await Promise.resolve().then(() => __importStar(require('./reasoning/meshEngine')));
+            const { LLMClient } = await Promise.resolve().then(() => __importStar(require('./reasoning/llmClient')));
+            // Get responses from available models
+            const outputs = [];
+            const ollamaClient = new LLMClient({ provider: 'ollama', model: 'codellama:7b', baseUrl: 'http://localhost:11434' });
+            const ollamaOk = await ollamaClient.checkOllama();
+            if (ollamaOk) {
+                log('   🔄 Ollama sorgulanıyor...', 'dim');
+                const start = Date.now();
+                try {
+                    const resp = await ollamaClient.chat([
+                        { role: 'system', content: 'Sen yardımcı bir programlama asistanısın.' },
+                        { role: 'user', content: question }
+                    ]);
+                    outputs.push({
+                        model: 'ollama-codellama',
+                        response: resp.content,
+                        confidence: 0.8,
+                        latency: Date.now() - start,
+                        tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+                    });
+                    log('   ✅ Ollama yanıtladı', 'dim');
+                }
+                catch (e) {
+                    log('   ❌ Ollama hatası', 'dim');
+                }
+            }
+            if (process.env.GROQ_API_KEY) {
+                log('   🔄 Groq sorgulanıyor...', 'dim');
+                const groqClient = new LLMClient({
+                    provider: 'groq',
+                    model: 'llama-3.2-70b-versatile',
+                    baseUrl: 'https://api.groq.com/openai/v1',
+                    apiKey: process.env.GROQ_API_KEY
+                });
+                const start = Date.now();
+                try {
+                    const resp = await groqClient.chat([
+                        { role: 'system', content: 'Sen yardımcı bir programlama asistanısın.' },
+                        { role: 'user', content: question }
+                    ]);
+                    outputs.push({
+                        model: 'groq-llama',
+                        response: resp.content,
+                        confidence: 0.85,
+                        latency: Date.now() - start,
+                        tokens: { prompt: resp.usage?.promptTokens || 0, completion: resp.usage?.completionTokens || 0 }
+                    });
+                    log('   ✅ Groq yanıtladı', 'dim');
+                }
+                catch (e) {
+                    log('   ❌ Groq hatası', 'dim');
+                }
+            }
+            if (outputs.length === 0) {
+                log('❌ Hiçbir LLM yanıt veremedi!', 'red');
+                break;
+            }
+            const meshEngine = getMeshEngine();
+            const meshed = meshEngine.meshModelOutputs(outputs);
+            log(`\n📝 Birleştirilmiş Yanıt:\n`, 'green');
+            log(meshed.synthesized, 'reset');
+            log(`\n📊 Güven: ${(meshed.confidence * 100).toFixed(0)}%`, 'dim');
+            log(`🔗 Kaynaklar: ${meshed.sources.join(', ')}`, 'dim');
+            if (meshed.agreements.length > 0) {
+                log(`✅ Uyuşan iddialar: ${meshed.agreements.length}`, 'dim');
+            }
+            if (meshed.conflicts.length > 0) {
+                log(`⚠️ Çelişkiler: ${meshed.conflicts.length}`, 'yellow');
             }
             console.log();
             break;
