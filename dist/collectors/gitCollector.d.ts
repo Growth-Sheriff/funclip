@@ -51,6 +51,7 @@ export declare class GitCollector {
     getCommitHistory(days?: number): Commit[];
     /**
      * En çok değişen dosyaları bul (hotspots)
+     * Windows uyumlu - pipe komutları kullanmaz
      */
     getHotspots(limit?: number): FileHotspot[];
     /**
@@ -74,7 +75,7 @@ export declare class GitCollector {
      */
     getLastModified(file: string): Date | null;
     /**
-     * Dosya için author listesi
+     * Dosya için author listesi (Windows uyumlu)
      */
     getFileAuthors(file: string): string[];
     private exec;

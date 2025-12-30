@@ -92,6 +92,7 @@ export class GitCollector {
 
   /**
    * En çok değişen dosyaları bul (hotspots)
+   * Windows uyumlu - pipe komutları kullanmaz
    */
   getHotspots(limit: number = 20): FileHotspot[] {
     const cacheKey = `hotspots_${limit}`;
@@ -100,26 +101,34 @@ export class GitCollector {
     }
 
     try {
-      // Son 90 günde en çok değişen dosyalar
+      // Son 90 günde değişen tüm dosyaları al (Windows uyumlu)
       const output = this.exec(
-        'git log --since="90 days ago" --name-only --format="" | sort | uniq -c | sort -rn'
+        'git log --since="90 days ago" --name-only --format=""'
       );
 
-      const hotspots: FileHotspot[] = [];
+      // Dosya sayılarını JavaScript'te hesapla
+      const fileCount: Map<string, number> = new Map();
       const lines = output.trim().split('\n').filter(Boolean);
 
-      for (const line of lines.slice(0, limit)) {
-        const match = line.trim().match(/^(\d+)\s+(.+)$/);
-        if (!match) continue;
+      for (const line of lines) {
+        const file = line.trim();
+        if (!file || !this.isCodeFile(file)) continue;
+        fileCount.set(file, (fileCount.get(file) || 0) + 1);
+      }
 
-        const [, count, file] = match;
-        if (!this.isCodeFile(file)) continue;
+      // En çok değişenler sırala
+      const sorted = [...fileCount.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit);
 
+      const hotspots: FileHotspot[] = [];
+
+      for (const [file, count] of sorted) {
         const fileInfo = this.getFileInfo(file);
         
         hotspots.push({
           file,
-          changeCount: parseInt(count),
+          changeCount: count,
           authors: fileInfo.authors,
           lastModified: fileInfo.lastModified,
           bugFixCount: fileInfo.bugFixCount,
@@ -221,12 +230,14 @@ export class GitCollector {
   }
 
   /**
-   * Dosya için author listesi
+   * Dosya için author listesi (Windows uyumlu)
    */
   getFileAuthors(file: string): string[] {
     try {
-      const output = this.exec(`git log --format="%an" -- "${file}" | sort | uniq`);
-      return output.trim().split('\n').filter(Boolean);
+      const output = this.exec(`git log --format="%an" -- "${file}"`);
+      const authors = output.trim().split('\n').filter(Boolean);
+      // JavaScript ile unique yap
+      return [...new Set(authors)];
     } catch {
       return [];
     }
@@ -337,10 +348,12 @@ export class GitCollector {
 
   private getFileBugFixCount(file: string): number {
     try {
+      // Windows uyumlu - wc -l yerine JavaScript sayımı
       const output = this.exec(
-        `git log --oneline --grep="fix" --grep="bug" -i -- "${file}" | wc -l`
+        `git log --oneline --grep="fix" --grep="bug" -i -- "${file}"`
       );
-      return parseInt(output.trim()) || 0;
+      const lines = output.trim().split('\n').filter(Boolean);
+      return lines.length;
     } catch {
       return 0;
     }
