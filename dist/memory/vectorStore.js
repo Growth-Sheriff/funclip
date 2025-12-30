@@ -255,7 +255,13 @@ exports.VectorStore = VectorStore;
 const stores = new Map();
 function getVectorStore(name = 'default', config) {
     if (!stores.has(name)) {
-        stores.set(name, new VectorStore(config));
+        // Use default persist path if not provided
+        const finalConfig = config || {};
+        if (!finalConfig.persistPath) {
+            const path = require('path');
+            finalConfig.persistPath = path.join(process.cwd(), '.funclib', 'vectors.json');
+        }
+        stores.set(name, new VectorStore(finalConfig));
     }
     return stores.get(name);
 }
